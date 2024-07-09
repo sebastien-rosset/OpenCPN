@@ -73,6 +73,7 @@ ocpnCompass::ocpnCompass(ChartCanvas* parent, bool bShowGPS) {
 
   m_scale = 1.0;
   m_cs = GLOBAL_COLOR_SCHEME_RGB;
+  SetToolTip(wxEmptyString);
 }
 
 ocpnCompass::~ocpnCompass() {
@@ -171,7 +172,16 @@ void ocpnCompass::Paint(ocpnDC& dc) {
 }
 
 bool ocpnCompass::MouseEvent(wxMouseEvent& event) {
-  if (!m_shown || !m_rect.Contains(event.GetPosition())) return false;
+  wxRect logicalRect = GetLogicalRect();
+  if (!m_shown) {
+    return false;
+  }
+  if (!logicalRect.Contains(event.GetPosition())) {
+    // User is moving away from compass widget. Reset canvas tooltip in case it
+    // was displayed.
+    m_parent->UnsetToolTip();
+    return false;
+  }
 
   if (event.LeftDown()) {
     if (m_parent->GetUpMode() == NORTH_UP_MODE)
@@ -180,6 +190,15 @@ bool ocpnCompass::MouseEvent(wxMouseEvent& event) {
       m_parent->SetUpMode(HEAD_UP_MODE);
     else
       m_parent->SetUpMode(NORTH_UP_MODE);
+  }
+  if (event.LeftUp()) {
+    // On LeftUp event (MacOS only?), the tooltip must be unset before it is set
+    // again, otherwise the tooltip is not displayed.
+    m_parent->UnsetToolTip();
+  }
+  if (event.LeftUp() || event.Entering() || event.Moving()) {
+    // Show tooltip on hover or after the user has changed the compass mode.
+    m_parent->SetToolTip(m_tooltip);
   }
 
   return true;
@@ -190,6 +209,27 @@ void ocpnCompass::SetColorScheme(ColorScheme cs) {
   UpdateStatus(true);
 }
 
+void ocpnCompass::SetToolTip(const wxString& tooltip) { m_tooltip = tooltip; }
+
+wxRect ocpnCompass::GetLogicalRect(void) const {
+#ifdef wxHAS_DPI_INDEPENDENT_PIXELS
+#if wxCHECK_VERSION(3, 1, 6)
+  wxRect logicalRect = wxRect(m_parent->FromPhys(m_rect.GetPosition()),
+                              m_parent->FromPhys(m_rect.GetSize()));
+#else
+  double scaleFactor = m_parent->GetContentScaleFactor();
+  wxRect logicalRect(
+      wxPoint(m_rect.GetX() / scaleFactor, m_rect.GetY() / scaleFactor),
+      wxSize(m_rect.GetWidth() / scaleFactor,
+             m_rect.GetHeight() / scaleFactor));
+#endif
+#else
+  // On platforms without DPI-independent pixels, logical = physical.
+  wxRect logicalRect = m_rect;
+#endif
+  return logicalRect;
+}
+
 void ocpnCompass::UpdateStatus(bool bnew) {
   if (bnew) m_lastgpsIconName.Clear();  // force an update to occur
 
@@ -198,6 +238,31 @@ void ocpnCompass::UpdateStatus(bool bnew) {
 #ifdef ocpnUSE_GL
   if (g_bopengl && m_texobj) CreateTexture();
 #endif
+
+  // Show a tooltip with the current compass mode and GPS status.
+  wxString tooltipText;
+  if (m_parent->GetUpMode() == NORTH_UP_MODE)
+    tooltipText = _("North Up");
+  else if (m_parent->GetUpMode() == COURSE_UP_MODE)
+    tooltipText = _("Course Up");
+  else
+    tooltipText = _("Heading Up");
+
+  if (m_bshowGPS) {
+    tooltipText += "\n";
+    if (bGPSValid) {
+      if (g_bSatValid)
+        tooltipText +=
+            wxString::Format(_("GNSS (%d satellites)"), g_SatsInView);
+      else
+        // Satellite watchdog timer has expired, no data has been received
+        // recently.
+        tooltipText += _("GNSS data stale");
+    } else {
+      tooltipText += _("No GNSS data");
+    }
+  }
+  SetToolTip(tooltipText);
 }
 
 void ocpnCompass::SetScaleFactor(float factor) {
