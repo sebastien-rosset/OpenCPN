@@ -29,7 +29,7 @@ case $(uname -s) in
 
             run_apt update || echo 'Failed to update packages, but continuing nevertheless.'
 
-            sudo apt-get -qq install devscripts equivs software-properties-common
+            sudo apt-get -qq install devscripts equivs software-properties-common clang-format
 
             sudo mk-build-deps -ir ci/control
             sudo apt-get -q --allow-unauthenticated install -f

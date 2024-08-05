@@ -51,6 +51,21 @@ jobs:
         run: |
           ./ci/github-pre-build.sh
 
+      - name: Check code formatting
+        run: |
+          unformatted_files=()
+          while IFS= read -r -d '' file; do
+            if ! clang-format -style=file -output-replacements-xml "$file" | grep -q "<replacement "; then
+              unformatted_files+=("$file")
+            fi
+          done < <(find . -name '*.cpp' -o -name '*.h' -print0)
+          if [ ${#unformatted_files[@]} -ne 0 ]; then
+            echo "The following files are not formatted correctly:"
+            printf '%s\n' "${unformatted_files[@]}"
+            echo "Please run clang-format locally and commit the changes."
+            exit 1
+          fi
+
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} ${{ matrix.cmake_defines }}
 
