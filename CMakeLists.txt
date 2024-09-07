@@ -786,6 +786,7 @@ set(GUI_HDRS
     ${GUI_HDR_DIR}/gui_lib.h
     ${GUI_HDR_DIR}/IDX_entry.h
     ${GUI_HDR_DIR}/iENCToolbar.h
+    ${GUI_HDR_DIR}/icon_button.h
     ${GUI_HDR_DIR}/kml.h
     ${GUI_HDR_DIR}/Layer.h
     ${GUI_HDR_DIR}/LinkPropDlg.h
@@ -841,6 +842,7 @@ set(GUI_HDRS
     ${GUI_HDR_DIR}/tcmgr.h
     ${GUI_HDR_DIR}/TCWin.h
     ${GUI_HDR_DIR}/thumbwin.h
+    ${GUI_HDR_DIR}/timeline.h
     ${GUI_HDR_DIR}/tide_time.h
     ${GUI_HDR_DIR}/timers.h
     ${GUI_HDR_DIR}/time_textbox.h
@@ -905,6 +907,7 @@ set(GUI_SRC
     ${GUI_SRC_DIR}/gui_lib.cpp
     ${GUI_SRC_DIR}/IDX_entry.cpp
     ${GUI_SRC_DIR}/iENCToolbar.cpp
+    ${GUI_SRC_DIR}/icon_button.cpp
     ${GUI_SRC_DIR}/kml.cpp
     ${GUI_SRC_DIR}/Layer.cpp
     ${GUI_SRC_DIR}/LinkPropDlg.cpp
@@ -963,6 +966,7 @@ set(GUI_SRC
     ${GUI_SRC_DIR}/tcmgr.cpp
     ${GUI_SRC_DIR}/TCWin.cpp
     ${GUI_SRC_DIR}/thumbwin.cpp
+    ${GUI_SRC_DIR}/timeline.cpp
     ${GUI_SRC_DIR}/toolbar.cpp
     ${GUI_SRC_DIR}/track_gui.cpp
     ${GUI_SRC_DIR}/trackprintout.cpp
