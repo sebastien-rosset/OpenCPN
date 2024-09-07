@@ -31,7 +31,26 @@
 #include <vector>
 #include <memory>
 
-class IconButton;
+#include "icon_button.h"
+
+/**
+ * @brief Struct representing an element on the timeline
+ */
+struct TimelineElement
+{
+    /**
+     * @brief Struct representing a part of a timeline element
+     */
+    struct Part
+    {
+        wxDateTime start;     ///< Start time of the part
+        wxTimeSpan duration;  ///< Duration of the part
+        wxColour color;       ///< Color of the part
+        wxString label;       ///< Label for the part
+    };
+
+    std::vector<Part> parts;  ///< Vector of parts composing the timeline element
+};
 
 /**
  * @brief A custom widget for displaying a timeline
@@ -53,6 +72,8 @@ public:
     Timeline(wxWindow* parent,
              const wxDateTime& start = wxDateTime::Now(),
              const wxTimeSpan& timelineDuration = wxTimeSpan::Days(16));
+
+    ~Timeline();
 
     /**
      * @brief Set the timeline elements to be displayed
@@ -102,32 +123,15 @@ private:
 
     // Helper methods
     void DrawTimeline(wxDC& dc);
+    void DrawTimeUnits(wxDC& dc, const wxString& timeUnit, int interval);
+    void DrawTimelineElements(wxDC& dc);
+    void DrawTimeIndicator(wxDC& dc, const wxDateTime& timestamp, const wxColour& color);
+
     void UpdateTimelineDisplay();
     wxString FormatTimestamp(const wxDateTime& timestamp) const;
     std::pair<wxString, int> GetTimeUnitAndInterval() const;
     wxString FormatDate(const wxDateTime& date, const wxString& timeUnit, int availableWidth = 0) const;
     void EnsureTimestampVisible();
-
-    // Add other necessary methods and member variables
-};
-
-/**
- * @brief Struct representing an element on the timeline
- */
-struct TimelineElement
-{
-    /**
-     * @brief Struct representing a part of a timeline element
-     */
-    struct Part
-    {
-        wxDateTime start;     ///< Start time of the part
-        wxTimeSpan duration;  ///< Duration of the part
-        wxColour color;       ///< Color of the part
-        wxString label;       ///< Label for the part
-    };
-
-    std::vector<Part> parts;  ///< Vector of parts composing the timeline element
 };
 
 #endif // TIMELINE_H

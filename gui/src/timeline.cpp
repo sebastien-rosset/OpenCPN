@@ -28,15 +28,10 @@
 #include <wx/graphics.h>
 #include <wx/dcbuffer.h>
 
-BEGIN_EVENT_TABLE(Timeline, wxPanel)
-    EVT_PAINT(Timeline::OnPaint)
-    EVT_SIZE(Timeline::OnSize)
-    EVT_TIMER(wxID_ANY, Timeline::OnPlayTimer)
-    EVT_TIMER(wxID_ANY, Timeline::OnUpdateTimer)
-END_EVENT_TABLE()
-
 Timeline::Timeline(wxWindow* parent, const wxDateTime& start, const wxTimeSpan& timelineDuration)
-    : wxPanel(parent), m_timelineDuration(timelineDuration), m_startTimestamp(start), m_selectedTimestamp(start)
+    : wxPanel(parent), m_timelineDuration(timelineDuration),
+      m_startTimestamp(start), m_selectedTimestamp(start),
+      m_isDragging(false), m_dragStartX(0)
 {
     m_isPlaying = false;
     m_playTimer = new wxTimer(this);
@@ -62,6 +57,11 @@ Timeline::Timeline(wxWindow* parent, const wxDateTime& start, const wxTimeSpan& 
     m_timelinePanel->SetMaxSize(wxSize(-1, 45));
 
     // Bind events
+    Bind(wxEVT_PAINT, &Timeline::OnPaint, this);
+    Bind(wxEVT_SIZE, &Timeline::OnSize, this);
+    m_playTimer->Bind(wxEVT_TIMER, &Timeline::OnPlayTimer, this);
+    m_updateTimer->Bind(wxEVT_TIMER, &Timeline::OnUpdateTimer, this);
+
     m_playButton->Bind(wxEVT_BUTTON, &Timeline::OnPlayPause, this);
     m_nowButton->Bind(wxEVT_BUTTON, &Timeline::OnNowButton, this);
     m_leftButton->Bind(wxEVT_BUTTON, &Timeline::OnMoveBackward, this);
@@ -266,26 +266,24 @@ wxTimeSpan Timeline::CalculateTimeIncrement() const
     wxTimeSpan targetTraversalTime = wxTimeSpan::Seconds(60);
     double traversalTicks = targetTraversalTime.GetMilliseconds().ToDouble() /
                             m_updateInterval.GetMilliseconds().ToDouble();
-    return m_timelineDuration / traversalTicks;
+    wxLongLong milliseconds = m_timelineDuration.GetMilliseconds() / static_cast<long long>(traversalTicks);
+    return wxTimeSpan::Milliseconds(milliseconds);
 }
 
-void Timeline::OnZoomIn(wxCommandEvent& event)
-{
-    if (m_timelineDuration > wxTimeSpan::Hours(4))
-    {
-        m_timelineDuration = m_timelineDuration / 2;
+void Timeline::OnZoomIn(wxCommandEvent& event) {
+    if (m_timelineDuration > wxTimeSpan::Hours(4)) {
+        m_timelineDuration = wxTimeSpan::Milliseconds(m_timelineDuration.GetMilliseconds().GetValue() / 2);
         UpdateTimelineDisplay();
     }
 }
 
-void Timeline::OnZoomOut(wxCommandEvent& event)
-{
-    if (m_timelineDuration < wxTimeSpan::Days(365 * 4))
-    {
-        m_timelineDuration = m_timelineDuration * 2;
+void Timeline::OnZoomOut(wxCommandEvent& event) {
+    if (m_timelineDuration < wxTimeSpan::Days(365 * 4)) {
+        m_timelineDuration = wxTimeSpan::Milliseconds(m_timelineDuration.GetMilliseconds().GetValue() * 2);
         UpdateTimelineDisplay();
     }
 }
+
 
 void Timeline::OnNowButton(wxCommandEvent& event)
 {
@@ -313,8 +311,7 @@ void Timeline::OnMoveBackward(wxCommandEvent& event)
     UpdateTimelineDisplay();
 }
 
-void Timeline::OnMoveForward(wxCommandEvent& event)
-{
+void Timeline::OnMoveForward(wxCommandEvent& event) {
     wxString timeUnit;
     int interval;
     std::tie(timeUnit, interval) = GetTimeUnitAndInterval();
@@ -332,8 +329,7 @@ void Timeline::OnMoveForward(wxCommandEvent& event)
     UpdateTimelineDisplay();
 }
 
-void Timeline::OnMouseDown(wxMouseEvent& event)
-{
+void Timeline::OnMouseDown(wxMouseEvent& event) {
     if (m_isPlaying)
         OnPlayPause(wxCommandEvent());
 
@@ -342,10 +338,8 @@ void Timeline::OnMouseDown(wxMouseEvent& event)
     m_dragStartTimestamp = m_selectedTimestamp;
 }
 
-void Timeline::OnMouseMove(wxMouseEvent& event)
-{
-    if (m_isDragging)
-    {
+void Timeline::OnMouseMove(wxMouseEvent& event) {
+    if (m_isDragging) {
         int dx = event.GetX() - m_dragStartX;
         double fraction = static_cast<double>(dx) / m_timelinePanel->GetSize().GetWidth();
         wxTimeSpan delta = wxTimeSpan::Seconds(m_timelineDuration.GetSeconds().ToLong() * fraction);
@@ -355,8 +349,7 @@ void Timeline::OnMouseMove(wxMouseEvent& event)
     }
 }
 
-void Timeline::OnMouseUp(wxMouseEvent& event)
-{
+void Timeline::OnMouseUp(wxMouseEvent& event) {
     m_isDragging = false;
 }
 
