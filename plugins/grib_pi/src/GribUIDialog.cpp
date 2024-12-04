@@ -173,6 +173,7 @@ GRIBUICtrlBar::GRIBUICtrlBar(wxWindow *parent, wxWindowID id,
   m_gCursorData = nullptr;
   m_gGRIBUICData = nullptr;
   m_gtk_started = false;
+  m_pLayerManager = new GribLayerManager();
 
   wxFileConfig *pConf = GetOCPNConfigObject();
 
@@ -347,6 +348,8 @@ GRIBUICtrlBar::~GRIBUICtrlBar() {
   }
   delete m_vp;
   delete m_pTimelineSet;
+  delete m_pLayerManager;
+  if (m_bGRIBActiveFile) delete m_bGRIBActiveFile;
 }
 
 wxBitmap GRIBUICtrlBar::GetScaledBitmap(wxBitmap bitmap,
@@ -471,6 +474,7 @@ void GRIBUICtrlBar::OpenFile(bool newestFile) {
 
   m_bGRIBActiveFile = new GRIBFile(m_file_names, pPlugIn->GetCopyFirstCumRec(),
                                    pPlugIn->GetCopyMissWaveRec(), newestFile);
+  GetGribLayerManager()->AssignLayer(0, m_bGRIBActiveFile);
 
   ArrayOfGribRecordSets *rsa = m_bGRIBActiveFile->GetRecordSetArrayPtr();
   wxString title;
