@@ -866,7 +866,7 @@ bool MUIBar::MouseEvent(wxMouseEvent& event) {
 }
 
 void MUIBar::OnScaleSelected(wxMouseEvent& event) {
-  ChartCanvas* pcc = wxDynamicCast(m_parentCanvas, ChartCanvas);
+  auto pcc = dynamic_cast<ChartCanvas*>(m_parentCanvas);
   if (!pcc) return;
 
   SetScaleDialog dlg(pcc);
@@ -900,6 +900,12 @@ void MUIBar::SetCanvasENCAvailable(bool avail) {
 
 void MUIBar::CreateControls() {
   wxString iconDir = g_Platform->GetSharedDataDir() + _T("uidata/MUI_flat/");
+
+  // Build one button to get sizes
+  MUIButton* tb = new MUIButton(m_parentCanvas, ID_ZOOMIN, m_scaleFactor,
+                                iconDir + _T("MUI_zoom-in.svg"));
+  wxSize button_size = tb->m_size;
+  delete tb;
 
   if (m_orientation == wxHORIZONTAL) {
     // Buttons
@@ -945,7 +951,7 @@ void MUIBar::CreateControls() {
     m_menuButton->m_position = wxPoint(xoff, 0);
     xoff += m_menuButton->m_size.x;
     m_size.x = xoff;
-    m_size.y = m_zinButton->m_size.y;
+    m_size.y = button_size.y;
 
   } else {
     int yoff = 0;
@@ -978,7 +984,7 @@ void MUIBar::CreateControls() {
     yoff += m_menuButton->m_size.y;
 
     m_size.y = yoff;
-    m_size.x = m_zinButton->m_size.x;
+    m_size.x = button_size.x;
   }
 }
 
@@ -1351,7 +1357,7 @@ void MUIBar::PullCanvasOptions() {
   m_animationTotalTime = 200;  // msec
 
   m_pushPull = CO_PULL;
-  ChartCanvas* pcc = wxDynamicCast(m_parentCanvas, ChartCanvas);
+  auto pcc = dynamic_cast<ChartCanvas*>(m_parentCanvas);
   pcc->m_b_paint_enable = false;
 
   // Start the animation....
@@ -1389,7 +1395,7 @@ void MUIBar::PushCanvasOptions() {
   m_animateSteps = 5;
   m_animationTotalTime = 100;  // msec
   m_pushPull = CO_PUSH;
-  ChartCanvas* pcc = wxDynamicCast(m_parentCanvas, ChartCanvas);
+  auto pcc = dynamic_cast<ChartCanvas*>(m_parentCanvas);
 
   // Start the animation....
   m_animateStep = 0;
@@ -1446,7 +1452,7 @@ void MUIBar::onCanvasOptionsAnimationTimerEvent(wxTimerEvent& event) {
     m_currentCOPos = m_targetCOPos;
     m_canvasOptions->Show(m_pushPull == CO_PULL);
 
-    ChartCanvas* pcc = wxDynamicCast(m_parentCanvas, ChartCanvas);
+    auto pcc = dynamic_cast<ChartCanvas*>(m_parentCanvas);
     if (pcc) {
       pcc->m_b_paint_enable = true;
 

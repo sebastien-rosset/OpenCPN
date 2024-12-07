@@ -295,7 +295,7 @@ wxString ConnectionParams::GetDSPort() const {
     return _T("");
 }
 
-std::string ConnectionParams::GetStrippedDSPort() {
+std::string ConnectionParams::GetStrippedDSPort() const {
   if (Type == SERIAL) {
     wxString t = wxString::Format(_T("Serial:%s"), Port.c_str());
     wxString comx = t.AfterFirst(':').BeforeFirst(' ');
@@ -329,7 +329,7 @@ std::string ConnectionParams::GetLastDSPort() const {
 }
 
 bool ConnectionParams::SentencePassesFilter(const wxString& sentence,
-                                            FilterDirection direction) {
+                                            FilterDirection direction) const {
   wxArrayString filter;
   bool listype = false;
 
@@ -370,7 +370,7 @@ bool ConnectionParams::SentencePassesFilter(const wxString& sentence,
   return !listype;
 }
 
-NavAddr::Bus ConnectionParams::GetCommProtocol() {
+NavAddr::Bus ConnectionParams::GetCommProtocol() const {
   if (Type == NETWORK) {
     if (NetProtocol == SIGNALK)
       return NavAddr::Bus::Signalk;

@@ -95,6 +95,10 @@
 #define strncasecmp(x, y, z) _strnicmp(x, y, z)
 #endif
 
+#ifdef __ANDROID__
+#include "crashlytics.h"
+#endif
+
 extern bool GetDoubleAttr(S57Obj *obj, const char *AttrName,
                           double &val);  // found in s52cnsy
 
@@ -267,7 +271,6 @@ s57chart::s57chart() {
   m_this_chart_context = 0;
   m_Chart_Skew = 0;
   m_vbo_byte_length = 0;
-  m_SENCthreadStatus = THREAD_INACTIVE;
   bReadyToRender = false;
   m_RAZBuilt = false;
   m_disableBackgroundSENC = false;
@@ -2527,6 +2530,11 @@ InitReturn s57chart::Init(const wxString &name, ChartInitFlag flags) {
   }
   m_FullPath = name;
 
+#ifdef __ANDROID__
+  firebase::crashlytics::SetCustomKey("s57chartInit",
+                                      name.ToStdString().c_str());
+#endif
+
   //    Use a static semaphore flag to prevent recursion
   if (s_bInS57) {
     //          printf("s57chart::Init() recursion..., retry\n");
@@ -4059,7 +4067,7 @@ int s57chart::BuildSENCFile(const wxString &FullPath000,
       ticket->m_SENCFileName = SENCFileName;
       ticket->m_chart = this;
 
-      m_SENCthreadStatus = g_SencThreadManager->ScheduleJob(ticket);
+      g_SencThreadManager->ScheduleJob(ticket);
       bReadyToRender = true;
       return BUILD_SENC_PENDING;
 
@@ -5763,6 +5771,21 @@ wxString s57chart::CreateObjDescriptions(ListOfObjRazRules *rule_list) {
             file.Assign(GetFullPath());
             file.Assign(file.GetPath(), value);
             file.Normalize();
+            // Make the filecheck case-unsensitive (linux)
+            if (file.IsCaseSensitive()) {
+              wxDir dir(file.GetPath());
+              wxString filename;
+              bool cont = dir.GetFirst(&filename, "", wxDIR_FILES);
+              while (cont) {
+                if (filename.IsSameAs(value, false)) {
+                  value = filename;
+                  file.Assign(file.GetPath(), value);
+                  break;
+                }
+                cont = dir.GetNext(&filename);
+              }
+            }
+
             if (file.IsOk()) {
               if (file.Exists())
                 value =

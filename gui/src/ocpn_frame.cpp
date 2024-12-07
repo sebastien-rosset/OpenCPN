@@ -629,6 +629,11 @@ static void onBellsFinishedCB(void *ptr) {
   }
 }
 
+static void OnDriverMsg(const ObservedEvt &ev) {
+  auto msg = ev.GetString().ToStdString();
+  OCPNMessageBox(GetTopWindow(), msg, _("Communication Error"));
+}
+
 // My frame constructor
 MyFrame::MyFrame(wxFrame *frame, const wxString &title, const wxPoint &pos,
                  const wxSize &size, long style)
@@ -794,6 +799,8 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, const wxPoint &pos,
   assert(g_pRouteMan != 0 && "g_pRouteMan not available");
   m_routes_update_listener.Init(g_pRouteMan->on_routes_update,
                                 [&](wxCommandEvent) { Refresh(); });
+  m_evt_drv_msg_listener.Init(CommDriverRegistry::GetInstance().evt_driver_msg,
+                              [&](ObservedEvt &ev) { OnDriverMsg(ev); });
 
 #ifdef __WXOSX__
   // Enable native fullscreen on macOS
@@ -1452,7 +1459,7 @@ void MyFrame::SwitchKBFocus(ChartCanvas *pCanvas) {
     int nTargetGTK = -1;
     ChartCanvas *target;
     wxWindow *source = FindFocus();
-    ChartCanvas *test = wxDynamicCast(source, ChartCanvas);
+    auto test = dynamic_cast<ChartCanvas *>(source);
     if (!test) return;
 
     // On linux(GTK), the TAB key causes a loss of focus immediately
@@ -1487,8 +1494,7 @@ void MyFrame::SwitchKBFocus(ChartCanvas *pCanvas) {
                        .Item(nfinalTarget)
                        ->canvas;
           if (target) {
-            wxWindow *win = wxDynamicCast(target, wxWindow);
-            win->SetFocus();
+            target->SetFocus();
             target->Refresh(true);
           }
         }
@@ -1555,6 +1561,9 @@ void MyFrame::OnCloseWindow(wxCloseEvent &event) {
       cc->CancelMeasureRoute();
     }
   }
+
+  //  Give any requesting plugins a PreShutdownHook call
+  g_pi_manager->SendPreShutdownHookToPlugins();
 
   // We save perspective before closing to restore position next time
   // Pane is not closed so the child is not notified (OnPaneClose)
@@ -3373,7 +3382,7 @@ void MyFrame::SetToolbarItemSVG(int tool_id, wxString normalSVGfile,
   }
 }
 
-void MyFrame::ApplyGlobalSettings(bool bnewtoolbar) {
+void MyFrame::ConfigureStatusBar() {
   //             ShowDebugWindow as a wxStatusBar
   m_StatusBarFieldCount = g_Platform->GetStatusBarFieldCount();
 
@@ -3395,6 +3404,10 @@ void MyFrame::ApplyGlobalSettings(bool bnewtoolbar) {
       SetStatusBar(NULL);
     }
   }
+}
+
+void MyFrame::ApplyGlobalSettings(bool bnewtoolbar) {
+  ConfigureStatusBar();
 
   wxSize lastOptSize = options_lastWindowSize;
   SendSizeEvent();
@@ -7241,26 +7254,13 @@ bool MyFrame::AddDefaultPositionPlugInTools() {
 wxColour GetGlobalColor(wxString colorName);  // -> color_handler
 
 static const char *usercolors[] = {
-    "Table:DAY",
-    "GREEN1;120;255;120;",
-    "GREEN2; 45;150; 45;",
-    "GREEN3;200;220;200;",
-    "GREEN4;  0;255;  0;",
-    "BLUE1; 170;170;255;",
-    "BLUE2;  45; 45;170;",
-    "BLUE3;   0;  0;255;",
-    "GREY1; 200;200;200;",
-    "GREY2; 230;230;230;",
-    "RED1;  220;200;200;",
-    "UBLCK;   0;  0;  0;",
-    "UWHIT; 255;255;255;",
-    "URED;  255;  0;  0;",
-    "UGREN;   0;255;  0;",
-    "YELO1; 243;229; 47;",
-    "YELO2; 128; 80;  0;",
-    "TEAL1;   0;128;128;",
-    "GREEN5;170;254;  0;",
-    "COMPT; 245;247;244",
+    "Table:DAY", "GREEN1;120;255;120;", "GREEN2; 45;150; 45;",
+    "GREEN3;200;220;200;", "GREEN4;  0;255;  0;", "BLUE1; 170;170;255;",
+    "BLUE2;  45; 45;170;", "BLUE3;   0;  0;255;", "GREY1; 200;200;200;",
+    "GREY2; 230;230;230;", "RED1;  220;200;200;", "UBLCK;   0;  0;  0;",
+    "UWHIT; 255;255;255;", "URED;  255;  0;  0;", "UGREN;   0;255;  0;",
+    "YELO1; 243;229; 47;", "YELO2; 128; 80;  0;", "TEAL1;   0;128;128;",
+    "GREEN5;170;254;  0;", "COMPT; 245;247;244",
 #ifdef __WXOSX__
     "DILG0; 255;255;255;",  // Dialog Background white
 #else
@@ -7271,30 +7271,17 @@ static const char *usercolors[] = {
     "DILG3;   0;  0;  0;",  // Text
     "UITX1;   0;  0;  0;",  // Menu Text, derived from UINFF
 
-    "CHGRF; 163; 180; 183;",
-    "UINFM; 197;  69; 195;",
-    "UINFG; 104; 228;  86;",
-    "UINFF; 125; 137; 140;",
-    "UINFR; 241;  84; 105;",
-    "SHIPS;   7;   7;   7;",
-    "CHYLW; 244; 218;  72;",
-    "CHWHT; 212; 234; 238;",
+    "CHGRF; 163; 180; 183;", "UINFM; 197;  69; 195;", "UINFG; 104; 228;  86;",
+    "UINFF; 125; 137; 140;", "UINFR; 241;  84; 105;", "SHIPS;   7;   7;   7;",
+    "CHYLW; 244; 218;  72;", "CHWHT; 212; 234; 238;",
 
     "UDKRD; 124; 16;  0;",
     "UARTE; 200;  0;  0;",  // Active Route, Grey on Dusk/Night
 
-    "NODTA; 163; 180; 183;",
-    "CHBLK;   7;   7;   7;",
-    "SNDG1; 125; 137; 140;",
-    "SNDG2;   7;   7;   7;",
-    "SCLBR; 235; 125;  54;",
-    "UIBDR; 125; 137; 140;",
-    "UINFB;  58; 120; 240;",
-    "UINFD;   7;   7;   7;",
-    "UINFO; 235; 125;  54;",
-    "PLRTE; 220;  64;  37;",
-    "CHMGD; 197; 69; 195;",
-    "UIBCK; 212; 234; 238;",
+    "NODTA; 163; 180; 183;", "CHBLK;   7;   7;   7;", "SNDG1; 125; 137; 140;",
+    "SNDG2;   7;   7;   7;", "SCLBR; 235; 125;  54;", "UIBDR; 125; 137; 140;",
+    "UINFB;  58; 120; 240;", "UINFD;   7;   7;   7;", "UINFO; 235; 125;  54;",
+    "PLRTE; 220;  64;  37;", "CHMGD; 197; 69; 195;", "UIBCK; 212; 234; 238;",
 
     "DASHB; 255;255;255;",  // Dashboard Instr background
     "DASHL; 175;175;175;",  // Dashboard Instr Label
@@ -7308,38 +7295,22 @@ static const char *usercolors[] = {
 
     "GREY3;  40; 40; 40;",  // MUIBar/TB background
     "BLUE4; 100;100;200;",  // Canvas Focus Bar
-    "VIO01; 171; 33;141;",
-    "VIO02; 209;115;213;",
+    "VIO01; 171; 33;141;", "VIO02; 209;115;213;",
+    "BLUEBACK; 212;234;238;",  // DEPDW, looks like deep ocean
+    "LANDBACK; 201;185;122;",
+    //<color name="LANDA" r="201" g="185" b="122"/>
 
-    "Table:DUSK",
-    "GREEN1; 60;128; 60;",
-    "GREEN2; 22; 75; 22;",
-    "GREEN3; 80;100; 80;",
-    "GREEN4;  0;128;  0;",
-    "BLUE1;  80; 80;160;",
-    "BLUE2;  30; 30;120;",
-    "BLUE3;   0;  0;128;",
-    "GREY1; 100;100;100;",
-    "GREY2; 128;128;128;",
-    "RED1;  150;100;100;",
-    "UBLCK;   0;  0;  0;",
-    "UWHIT; 255;255;255;",
-    "URED;  120; 54; 11;",
-    "UGREN;  35;110; 20;",
-    "YELO1; 120;115; 24;",
-    "YELO2;  64; 40;  0;",
-    "TEAL1;   0; 64; 64;",
-    "GREEN5; 85;128; 0;",
-    "COMPT; 124;126;121",
+    "Table:DUSK", "GREEN1; 60;128; 60;", "GREEN2; 22; 75; 22;",
+    "GREEN3; 80;100; 80;", "GREEN4;  0;128;  0;", "BLUE1;  80; 80;160;",
+    "BLUE2;  30; 30;120;", "BLUE3;   0;  0;128;", "GREY1; 100;100;100;",
+    "GREY2; 128;128;128;", "RED1;  150;100;100;", "UBLCK;   0;  0;  0;",
+    "UWHIT; 255;255;255;", "URED;  120; 54; 11;", "UGREN;  35;110; 20;",
+    "YELO1; 120;115; 24;", "YELO2;  64; 40;  0;", "TEAL1;   0; 64; 64;",
+    "GREEN5; 85;128; 0;", "COMPT; 124;126;121",
 
-    "CHGRF;  41; 46; 46;",
-    "UINFM;  58; 20; 57;",
-    "UINFG;  35; 76; 29;",
-    "UINFF;  41; 46; 46;",
-    "UINFR;  80; 28; 35;",
-    "SHIPS;  71; 78; 79;",
-    "CHYLW;  81; 73; 24;",
-    "CHWHT;  71; 78; 79;",
+    "CHGRF;  41; 46; 46;", "UINFM;  58; 20; 57;", "UINFG;  35; 76; 29;",
+    "UINFF;  41; 46; 46;", "UINFR;  80; 28; 35;", "SHIPS;  71; 78; 79;",
+    "CHYLW;  81; 73; 24;", "CHWHT;  71; 78; 79;",
 
     "DILG0; 110;110;110;",  // Dialog Background
     "DILG1; 110;110;110;",  // Dialog Background
@@ -7349,18 +7320,10 @@ static const char *usercolors[] = {
     "UDKRD;  80;  0;  0;",
     "UARTE;  64; 64; 64;",  // Active Route, Grey on Dusk/Night
 
-    "NODTA;  41;  46;  46;",
-    "CHBLK;  54;  60;  61;",
-    "SNDG1;  41;  46;  46;",
-    "SNDG2;  71;  78;  79;",
-    "SCLBR;  75;  38;  19;",
-    "UIBDR;  54;  60;  61;",
-    "UINFB;  19;  40;  80;",
-    "UINFD;  71;  78;  79;",
-    "UINFO;  75;  38;  19;",
-    "PLRTE;  73;  21;  12;",
-    "CHMGD; 74; 58; 81;",
-    "UIBCK; 7; 7; 7;",
+    "NODTA;  41;  46;  46;", "CHBLK;  54;  60;  61;", "SNDG1;  41;  46;  46;",
+    "SNDG2;  71;  78;  79;", "SCLBR;  75;  38;  19;", "UIBDR;  54;  60;  61;",
+    "UINFB;  19;  40;  80;", "UINFD;  71;  78;  79;", "UINFO;  75;  38;  19;",
+    "PLRTE;  73;  21;  12;", "CHMGD; 74; 58; 81;", "UIBCK; 7; 7; 7;",
 
     "DASHB;  77; 77; 77;",  // Dashboard Instr background
     "DASHL;  54; 54; 54;",  // Dashboard Instr Label
@@ -7374,29 +7337,16 @@ static const char *usercolors[] = {
 
     "GREY3;  20; 20; 20;",  // MUIBar/TB background
     "BLUE4;  80; 80;160;",  // Canvas Focus Bar
-    "VIO01; 128; 25;108;",
-    "VIO02; 171; 33;141;",
+    "VIO01; 128; 25;108;", "VIO02; 171; 33;141;", "BLUEBACK; 186;213;235;",
+    "LANDBACK; 201;185;122;",
 
-    "Table:NIGHT",
-    "GREEN1; 30; 80; 30;",
-    "GREEN2; 15; 60; 15;",
-    "GREEN3; 12; 23;  9;",
-    "GREEN4;  0; 64;  0;",
-    "BLUE1;  60; 60;100;",
-    "BLUE2;  22; 22; 85;",
-    "BLUE3;   0;  0; 40;",
-    "GREY1;  48; 48; 48;",
-    "GREY2;  32; 32; 32;",
-    "RED1;  100; 50; 50;",
-    "UWHIT; 255;255;255;",
-    "UBLCK;   0;  0;  0;",
-    "URED;   60; 27;  5;",
-    "UGREN;  17; 55; 10;",
-    "YELO1;  60; 65; 12;",
-    "YELO2;  32; 20;  0;",
-    "TEAL1;   0; 32; 32;",
-    "GREEN5; 44; 64; 0;",
-    "COMPT;  48; 49; 51",
+    "Table:NIGHT", "GREEN1; 30; 80; 30;", "GREEN2; 15; 60; 15;",
+    "GREEN3; 12; 23;  9;", "GREEN4;  0; 64;  0;", "BLUE1;  60; 60;100;",
+    "BLUE2;  22; 22; 85;", "BLUE3;   0;  0; 40;", "GREY1;  48; 48; 48;",
+    "GREY2;  32; 32; 32;", "RED1;  100; 50; 50;", "UWHIT; 255;255;255;",
+    "UBLCK;   0;  0;  0;", "URED;   60; 27;  5;", "UGREN;  17; 55; 10;",
+    "YELO1;  60; 65; 12;", "YELO2;  32; 20;  0;", "TEAL1;   0; 32; 32;",
+    "GREEN5; 44; 64; 0;", "COMPT;  48; 49; 51",
     "DILG0;  80; 80; 80;",  // Dialog Background
     "DILG1;  80; 80; 80;",  // Dialog Background
     "DILG2;   0;  0;  0;",  // Control Background
@@ -7405,27 +7355,14 @@ static const char *usercolors[] = {
     "UDKRD;  50;  0;  0;",
     "UARTE;  64; 64; 64;",  // Active Route, Grey on Dusk/Night
 
-    "CHGRF;  16; 18; 18;",
-    "UINFM;  52; 18; 52;",
-    "UINFG;  22; 24;  7;",
-    "UINFF;  31; 34; 35;",
-    "UINFR;  59; 17; 10;",
-    "SHIPS;  37; 41; 41;",
-    "CHYLW;  31; 33; 10;",
-    "CHWHT;  37; 41; 41;",
+    "CHGRF;  16; 18; 18;", "UINFM;  52; 18; 52;", "UINFG;  22; 24;  7;",
+    "UINFF;  31; 34; 35;", "UINFR;  59; 17; 10;", "SHIPS;  37; 41; 41;",
+    "CHYLW;  31; 33; 10;", "CHWHT;  37; 41; 41;",
 
-    "NODTA;   7;   7;   7;",
-    "CHBLK;  31;  34;  35;",
-    "SNDG1;  31;  34;  35;",
-    "SNDG2;  43;  48;  48;",
-    "SCLBR;  52;  28;  12;",
-    "UIBDR;  31;  34;  35;",
-    "UINFB;  21;  29;  69;",
-    "UINFD;  43;  48;  58;",
-    "UINFO;  52;  28;  12;",
-    "PLRTE;  66;  19;  11;",
-    "CHMGD; 52; 18; 52;",
-    "UIBCK; 7; 7; 7;",
+    "NODTA;   7;   7;   7;", "CHBLK;  31;  34;  35;", "SNDG1;  31;  34;  35;",
+    "SNDG2;  43;  48;  48;", "SCLBR;  52;  28;  12;", "UIBDR;  31;  34;  35;",
+    "UINFB;  21;  29;  69;", "UINFD;  43;  48;  58;", "UINFO;  52;  28;  12;",
+    "PLRTE;  66;  19;  11;", "CHMGD; 52; 18; 52;", "UIBCK; 7; 7; 7;",
 
     "DASHB;   0;  0;  0;",  // Dashboard Instr background
     "DASHL;  20; 20; 20;",  // Dashboard Instr Label
@@ -7439,8 +7376,8 @@ static const char *usercolors[] = {
 
     "GREY3;  10; 10; 10;",  // MUIBar/TB background
     "BLUE4;  70; 70;140;",  // Canvas Focus Bar
-    "VIO01;  85; 16; 72;",
-    "VIO02; 128; 25;108;",
+    "VIO01;  85; 16; 72;", "VIO02; 128; 25;108;", "BLUEBACK; 186;213;235;",
+    "LANDBACK; 201;185;122;",
 
     "*****"};
 
@@ -7768,435 +7705,6 @@ bool TestGLCanvas(wxString prog_dir) {
   return true;
 #endif
 }
-#endif
-
-OCPN_ThreadMessageEvent::OCPN_ThreadMessageEvent(wxEventType commandType,
-                                                 int id)
-    : wxEvent(id, commandType) {}
-
-OCPN_ThreadMessageEvent::~OCPN_ThreadMessageEvent() {}
-
-wxEvent *OCPN_ThreadMessageEvent::Clone() const {
-  OCPN_ThreadMessageEvent *newevent = new OCPN_ThreadMessageEvent(*this);
-  newevent->m_string = this->m_string;
-  return newevent;
-}
-
-#if 0
-/*************************************************************************
- * Serial port enumeration routines
- *
- * The EnumSerialPort function will populate an array of SSerInfo structs,
- * each of which contains information about one serial port present in
- * the system. Note that this code must be linked with setupapi.lib,
- * which is included with the Win32 SDK.
- *
- * by Zach Gorman <gormanjz@hotmail.com>
- *
- * Copyright (c) 2002 Archetype Auction Software, Inc. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following condition is
- * met: Redistributions of source code must retain the above copyright
- * notice, this condition and the following disclaimer.
- *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESSED OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL ARCHETYPE AUCTION SOFTWARE OR ITS
- * AFFILIATES BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
- * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- ************************************************************************/
-
-// For MFC
-#include <stdafx.h>
-
-// The next 3 includes are needed for serial port enumeration
-#include <objbase.h>
-#include <initguid.h>
-#include <Setupapi.h>
-
-#include "EnumSerial.h"
-
-// The following define is from ntddser.h in the DDK. It is also
-// needed for serial port enumeration.
-#ifndef GUID_CLASS_COMPORT
-DEFINE_GUID(GUID_CLASS_COMPORT, 0x86e0d1e0L, 0x8089, 0x11d0, 0x9c, 0xe4, \
-0x08, 0x00, 0x3e, 0x30, 0x1f, 0x73);
-#endif
-
-
-struct SSerInfo {
-    SSerInfo() : bUsbDevice(FALSE) {}
-    CString strDevPath;          // Device path for use with CreateFile()
-    CString strPortName;         // Simple name (i.e. COM1)
-    CString strFriendlyName;     // Full name to be displayed to a user
-    BOOL bUsbDevice;             // Provided through a USB connection?
-    CString strPortDesc;         // friendly name without the COMx
-};
-
-//---------------------------------------------------------------
-// Helpers for enumerating the available serial ports.
-// These throw a CString on failure, describing the nature of
-// the error that occurred.
-
-void EnumPortsWdm(CArray<SSerInfo,SSerInfo&> &asi);
-void EnumPortsWNt4(CArray<SSerInfo,SSerInfo&> &asi);
-void EnumPortsW9x(CArray<SSerInfo,SSerInfo&> &asi);
-void SearchPnpKeyW9x(HKEY hkPnp, BOOL bUsbDevice,
-                     CArray<SSerInfo,SSerInfo&> &asi);
-
-
-//---------------------------------------------------------------
-// Routine for enumerating the available serial ports.
-// Throws a CString on failure, describing the error that
-// occurred. If bIgnoreBusyPorts is TRUE, ports that can't
-// be opened for read/write access are not included.
-
-void EnumSerialPorts(CArray<SSerInfo,SSerInfo&> &asi, BOOL bIgnoreBusyPorts)
-{
-    // Clear the output array
-    asi.RemoveAll();
-
-    // Use different techniques to enumerate the available serial
-    // ports, depending on the OS we're using
-    OSVERSIONINFO vi;
-    vi.dwOSVersionInfoSize = sizeof(vi);
-    if (!::GetVersionEx(&vi)) {
-        CString str;
-        str.Format("Could not get OS version. (err=%lx)",
-                   GetLastError());
-        throw str;
-    }
-    // Handle windows 9x and NT4 specially
-    if (vi.dwMajorVersion < 5) {
-        if (vi.dwPlatformId == VER_PLATFORM_WIN32_NT)
-            EnumPortsWNt4(asi);
-        else
-            EnumPortsW9x(asi);
-    }
-    else {
-        // Win2k and later support a standard API for
-        // enumerating hardware devices.
-        EnumPortsWdm(asi);
-    }
-
-    for (int ii=0; ii<asi.GetSize(); ii++)
-    {
-        SSerInfo& rsi = asi[ii];
-        if (bIgnoreBusyPorts) {
-            // Only display ports that can be opened for read/write
-            HANDLE hCom = CreateFile(rsi.strDevPath,
-                                     GENERIC_READ | GENERIC_WRITE,
-                                     0,    /* comm devices must be opened w/exclusive-access */
-                                     NULL, /* no security attrs */
-                                     OPEN_EXISTING, /* comm devices must use OPEN_EXISTING */
-                                     0,    /* not overlapped I/O */
-                                     NULL  /* hTemplate must be NULL for comm devices */
-            );
-            if (hCom == INVALID_HANDLE_VALUE) {
-                // It can't be opened; remove it.
-                asi.RemoveAt(ii);
-                ii--;
-                continue;
-            }
-            else {
-                // It can be opened! Close it and add it to the list
-                ::CloseHandle(hCom);
-            }
-        }
-
-        // Come up with a name for the device.
-        // If there is no friendly name, use the port name.
-        if (rsi.strFriendlyName.IsEmpty())
-            rsi.strFriendlyName = rsi.strPortName;
-
-        // If there is no description, try to make one up from
-            // the friendly name.
-            if (rsi.strPortDesc.IsEmpty()) {
-                // If the port name is of the form "ACME Port (COM3)"
-                // then strip off the " (COM3)"
-                rsi.strPortDesc = rsi.strFriendlyName;
-                int startdex = rsi.strPortDesc.Find(" (");
-                int enddex = rsi.strPortDesc.Find(")");
-                if (startdex > 0 && enddex ==
-                    (rsi.strPortDesc.GetLength()-1))
-                    rsi.strPortDesc = rsi.strPortDesc.Left(startdex);
-            }
-    }
-}
-
-// Helpers for EnumSerialPorts
-
-void EnumPortsWdm(CArray<SSerInfo,SSerInfo&> &asi)
-{
-    CString strErr;
-    // Create a device information set that will be the container for
-    // the device interfaces.
-    GUID *guidDev = (GUID*) &GUID_CLASS_COMPORT;
-
-    HDEVINFO hDevInfo = INVALID_HANDLE_VALUE;
-    SP_DEVICE_INTERFACE_DETAIL_DATA *pDetData = NULL;
-
-    try {
-        hDevInfo = SetupDiGetClassDevs( guidDev,
-                                        NULL,
-                                        NULL,
-                                        DIGCF_PRESENT | DIGCF_DEVICEINTERFACE
-        );
-
-        if(hDevInfo == INVALID_HANDLE_VALUE)
-        {
-            strErr.Format("SetupDiGetClassDevs failed. (err=%lx)",
-                          GetLastError());
-            throw strErr;
-        }
-
-        // Enumerate the serial ports
-        BOOL bOk = TRUE;
-        SP_DEVICE_INTERFACE_DATA ifcData;
-        DWORD dwDetDataSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA) + 256;
-        pDetData = (SP_DEVICE_INTERFACE_DETAIL_DATA*) new char[dwDetDataSize];
-        // This is required, according to the documentation. Yes,
-        // it's weird.
-        ifcData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
-        pDetData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-        for (DWORD ii=0; bOk; ii++) {
-            bOk = SetupDiEnumDeviceInterfaces(hDevInfo,
-                                              NULL, guidDev, ii, &ifcData);
-            if (bOk) {
-                // Got a device. Get the details.
-                SP_DEVINFO_DATA devdata = {sizeof(SP_DEVINFO_DATA)};
-                bOk = SetupDiGetDeviceInterfaceDetail(hDevInfo,
-                                                      &ifcData, pDetData, dwDetDataSize, NULL, &devdata);
-                if (bOk) {
-                    CString strDevPath(pDetData->DevicePath);
-                    // Got a path to the device. Try to get some more info.
-                    TCHAR fname[256];
-                    TCHAR desc[256];
-                    BOOL bSuccess = SetupDiGetDeviceRegistryProperty(
-                        hDevInfo, &devdata, SPDRP_FRIENDLYNAME, NULL,
-                        (PBYTE)fname, sizeof(fname), NULL);
-                    bSuccess = bSuccess && SetupDiGetDeviceRegistryProperty(
-                        hDevInfo, &devdata, SPDRP_DEVICEDESC, NULL,
-                        (PBYTE)desc, sizeof(desc), NULL);
-                    BOOL bUsbDevice = FALSE;
-                    TCHAR locinfo[256];
-                    if (SetupDiGetDeviceRegistryProperty(
-                        hDevInfo, &devdata, SPDRP_LOCATION_INFORMATION, NULL,
-                        (PBYTE)locinfo, sizeof(locinfo), NULL))
-                    {
-                        // Just check the first three characters to determine
-                        // if the port is connected to the USB bus. This isn't
-                        // an infallible method; it would be better to use the
-                        // BUS GUID. Currently, Windows doesn't let you query
-                        // that though (SPDRP_BUSTYPEGUID seems to exist in
-                        // documentation only).
-                        bUsbDevice = (strncmp(locinfo, "USB", 3)==0);
-                    }
-                    if (bSuccess) {
-                        // Add an entry to the array
-                        SSerInfo si;
-                        si.strDevPath = strDevPath;
-                        si.strFriendlyName = fname;
-                        si.strPortDesc = desc;
-                        si.bUsbDevice = bUsbDevice;
-                        asi.Add(si);
-                    }
-
-                }
-                else {
-                    strErr.Format("SetupDiGetDeviceInterfaceDetail failed. (err=%lx)",
-                                  GetLastError());
-                    throw strErr;
-                }
-            }
-            else {
-                DWORD err = GetLastError();
-                if (err != ERROR_NO_MORE_ITEMS) {
-                    strErr.Format("SetupDiEnumDeviceInterfaces failed. (err=%lx)", err);
-                    throw strErr;
-                }
-            }
-        }
-    }
-    catch (CString strCatchErr) {
-        strErr = strCatchErr;
-    }
-
-    if (pDetData != NULL)
-        delete [] (char*)pDetData;
-    if (hDevInfo != INVALID_HANDLE_VALUE)
-        SetupDiDestroyDeviceInfoList(hDevInfo);
-
-    if (!strErr.IsEmpty())
-        throw strErr;
-}
-
-void EnumPortsWNt4(CArray<SSerInfo,SSerInfo&> &asi)
-{
-    // NT4's driver model is totally different, and not that
-    // many people use NT4 anymore. Just try all the COM ports
-    // between 1 and 16
-    SSerInfo si;
-    for (int ii=1; ii<=16; ii++) {
-        CString strPort;
-        strPort.Format("COM%d",ii);
-        si.strDevPath = CString("\\\\.\\") + strPort;
-        si.strPortName = strPort;
-        asi.Add(si);
-    }
-}
-
-void EnumPortsW9x(CArray<SSerInfo,SSerInfo&> &asi)
-{
-    // Look at all keys in HKLM\Enum, searching for subkeys named
-    // *PNP0500 and *PNP0501. Within these subkeys, search for
-    // sub-subkeys containing value entries with the name "PORTNAME"
-    // Search all subkeys of HKLM\Enum\USBPORTS for PORTNAME entries.
-
-    // First, open HKLM\Enum
-    HKEY hkEnum = NULL;
-    HKEY hkSubEnum = NULL;
-    HKEY hkSubSubEnum = NULL;
-
-    try {
-        if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, "Enum", 0, KEY_READ,
-            &hkEnum) != ERROR_SUCCESS)
-            throw CString("Could not read from HKLM\\Enum");
-
-        // Enumerate the subkeys of HKLM\Enum
-            char acSubEnum[128];
-            DWORD dwSubEnumIndex = 0;
-            DWORD dwSize = sizeof(acSubEnum);
-            while (RegEnumKeyEx(hkEnum, dwSubEnumIndex++, acSubEnum, &dwSize,
-                NULL, NULL, NULL, NULL) == ERROR_SUCCESS)
-            {
-                HKEY hkSubEnum = NULL;
-                if (RegOpenKeyEx(hkEnum, acSubEnum, 0, KEY_READ,
-                    &hkSubEnum) != ERROR_SUCCESS)
-                    throw CString("Could not read from HKLM\\Enum\\")+acSubEnum;
-
-                // Enumerate the subkeys of HKLM\Enum\*\, looking for keys
-                    // named *PNP0500 and *PNP0501 (or anything in USBPORTS)
-                    BOOL bUsbDevice = (strcmp(acSubEnum,"USBPORTS")==0);
-                    char acSubSubEnum[128];
-                    dwSize = sizeof(acSubSubEnum);  // set the buffer size
-                    DWORD dwSubSubEnumIndex = 0;
-                    while (RegEnumKeyEx(hkSubEnum, dwSubSubEnumIndex++, acSubSubEnum,
-                        &dwSize, NULL, NULL, NULL, NULL) == ERROR_SUCCESS)
-                    {
-                        BOOL bMatch = (strcmp(acSubSubEnum,"*PNP0500")==0 ||
-                        strcmp(acSubSubEnum,"*PNP0501")==0 ||
-                        bUsbDevice);
-                        if (bMatch) {
-                            HKEY hkSubSubEnum = NULL;
-                            if (RegOpenKeyEx(hkSubEnum, acSubSubEnum, 0, KEY_READ,
-                                &hkSubSubEnum) != ERROR_SUCCESS)
-                                throw CString("Could not read from HKLM\\Enum\\") +
-                                acSubEnum + "\\" + acSubSubEnum;
-                            SearchPnpKeyW9x(hkSubSubEnum, bUsbDevice, asi);
-                            RegCloseKey(hkSubSubEnum);
-                            hkSubSubEnum = NULL;
-                        }
-
-                        dwSize = sizeof(acSubSubEnum);  // restore the buffer size
-                    }
-
-                    RegCloseKey(hkSubEnum);
-                    hkSubEnum = NULL;
-                    dwSize = sizeof(acSubEnum); // restore the buffer size
-            }
-    }
-    catch (CString strError) {
-        if (hkEnum != NULL)
-            RegCloseKey(hkEnum);
-        if (hkSubEnum != NULL)
-            RegCloseKey(hkSubEnum);
-        if (hkSubSubEnum != NULL)
-            RegCloseKey(hkSubSubEnum);
-        throw strError;
-    }
-
-    RegCloseKey(hkEnum);
-}
-
-void SearchPnpKeyW9x(HKEY hkPnp, BOOL bUsbDevice,
-                     CArray<SSerInfo,SSerInfo&> &asi)
-{
-    // Enumerate the subkeys of the given PNP key, looking for values with
-    // the name "PORTNAME"
-    // First, open HKLM\Enum
-    HKEY hkSubPnp = NULL;
-
-    try {
-        // Enumerate the subkeys of HKLM\Enum\*\PNP050[01]
-        char acSubPnp[128];
-        DWORD dwSubPnpIndex = 0;
-        DWORD dwSize = sizeof(acSubPnp);
-        while (RegEnumKeyEx(hkPnp, dwSubPnpIndex++, acSubPnp, &dwSize,
-            NULL, NULL, NULL, NULL) == ERROR_SUCCESS)
-        {
-            HKEY hkSubPnp = NULL;
-            if (RegOpenKeyEx(hkPnp, acSubPnp, 0, KEY_READ,
-                &hkSubPnp) != ERROR_SUCCESS)
-                throw CString("Could not read from HKLM\\Enum\\...\\")
-                + acSubPnp;
-
-            // Look for the PORTNAME value
-                char acValue[128];
-                dwSize = sizeof(acValue);
-                if (RegQueryValueEx(hkSubPnp, "PORTNAME", NULL, NULL, (BYTE*)acValue,
-                    &dwSize) == ERROR_SUCCESS)
-                {
-                    CString strPortName(acValue);
-
-                    // Got the portname value. Look for a friendly name.
-                    CString strFriendlyName;
-                    dwSize = sizeof(acValue);
-                    if (RegQueryValueEx(hkSubPnp, "FRIENDLYNAME", NULL, NULL, (BYTE*)acValue,
-                        &dwSize) == ERROR_SUCCESS)
-                        strFriendlyName = acValue;
-
-                    // Prepare an entry for the output array.
-                        SSerInfo si;
-                        si.strDevPath = CString("\\\\.\\") + strPortName;
-                        si.strPortName = strPortName;
-                        si.strFriendlyName = strFriendlyName;
-                        si.bUsbDevice = bUsbDevice;
-
-                        // Overwrite duplicates.
-                        BOOL bDup = FALSE;
-                        for (int ii=0; ii<asi.GetSize() && !bDup; ii++)
-                        {
-                            if (asi[ii].strPortName == strPortName) {
-                                bDup = TRUE;
-                                asi[ii] = si;
-                            }
-                        }
-                        if (!bDup) {
-                            // Add an entry to the array
-                            asi.Add(si);
-                        }
-                }
-
-                RegCloseKey(hkSubPnp);
-                hkSubPnp = NULL;
-                dwSize = sizeof(acSubPnp);  // restore the buffer size
-        }
-    }
-    catch (CString strError) {
-        if (hkSubPnp != NULL)
-            RegCloseKey(hkSubPnp);
-        throw strError;
-    }
-}
-
 #endif
 
 bool ReloadLocale() {

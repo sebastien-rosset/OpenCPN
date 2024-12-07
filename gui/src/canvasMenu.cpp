@@ -75,6 +75,7 @@
 #include "route_point_gui.h"
 #include "RoutePropDlgImpl.h"
 #include "s52plib.h"
+#include "s52s57.h"
 #include "s57chart.h"  // for ArrayOfS57Obj
 #include "SendToGpsDlg.h"
 #include "SendToPeerDlg.h"
@@ -1438,8 +1439,7 @@ void CanvasMenuHandler::PopupMenuHandler(wxCommandEvent &event) {
       break;
     }
     case ID_DEF_MENU_AIS_QUERY: {
-      wxWindow *pwin = wxDynamicCast(parent, wxWindow);
-      ShowAISTargetQueryDialog(pwin, m_FoundAIS_MMSI);
+      ShowAISTargetQueryDialog(parent, m_FoundAIS_MMSI);
       break;
     }
 

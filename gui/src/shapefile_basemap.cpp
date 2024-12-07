@@ -32,6 +32,8 @@
 #include "chartbase.h"
 #include "glChartCanvas.h"
 
+#include "model/logger.h"
+
 #ifdef ocpnUSE_GL
 #include "shaders.h"
 #endif
@@ -128,7 +130,13 @@ void __CALL_CONVENTION shpsvertexCallback(GLvoid *arg) {
 }
 #endif
 
-ShapeBaseChartSet::ShapeBaseChartSet() : _loaded(false) {}
+ShapeBaseChartSet::ShapeBaseChartSet() : _loaded(false) {
+  land_color = wxColor(170, 175, 80);
+}
+void ShapeBaseChartSet::SetBasemapLandColor(wxColor color) {
+  land_color = color;
+}
+wxColor ShapeBaseChartSet::GetBasemapLandColor() { return land_color; }
 
 wxPoint2DDouble ShapeBaseChartSet::GetDoublePixFromLL(ViewPort &vp, double lat,
                                                       double lon) {
@@ -206,8 +214,6 @@ void ShapeBaseChartSet::LoadBasemaps(const std::string &dir) {
   _loaded = false;
   _basemap_map.clear();
 
-  wxColor land_color = wxColor(170, 175, 80);
-
   if (fs::exists(ShapeBaseChart::ConstructPath(dir, "crude_10x10"))) {
     auto c = ShapeBaseChart(ShapeBaseChart::ConstructPath(dir, "crude_10x10"),
                             300000000, land_color);
@@ -245,6 +251,10 @@ void ShapeBaseChartSet::LoadBasemaps(const std::string &dir) {
 
 bool ShapeBaseChart::LoadSHP() {
   _reader = new shp::ShapefileReader(_filename);
+  if (!_reader->isOpen()) {
+    MESSAGE_LOG << "Shapefile " << _filename << " is not opened";
+    return false;
+  }
   auto bounds = _reader->getBounds();
   _is_usable = _reader->getCount() > 1 && bounds.getMaxX() <= 180 &&
                bounds.getMinX() >= -180 && bounds.getMinY() >= -90 &&
@@ -586,6 +596,8 @@ bool ShapeBaseChart::PolygonLineIntersect(const shp::Feature &feature,
 
 void ShapeBaseChartSet::RenderViewOnDC(ocpnDC &dc, ViewPort &vp) {
   if (IsUsable()) {
-    SelectBaseMap(vp.chart_scale).RenderViewOnDC(dc, vp);
+    ShapeBaseChart &chart = SelectBaseMap(vp.chart_scale);
+    chart.SetColor(land_color);
+    chart.RenderViewOnDC(dc, vp);
   }
 }

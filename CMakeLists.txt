@@ -45,6 +45,13 @@ set(OpenGL_GL_PREFERENCE "LEGACY")
 
 if ("${OCPN_TARGET_TUPLE}" MATCHES "Android")
   message(STATUS "Building for wxQt-Android")
+
+  # Specific NDK setting, avoiding "Unwind" linkage problems with
+  # managed plugins found in later NDK versions.
+  #set( tool_base /home/dsr/Android/Sdk/ndk/22.1.7171670/toolchains/llvm/prebuilt/linux-x86_64)
+  #cmake -DOCPN_TARGET_TUPLE:STRING="Android-arm64;16;arm64"   -Dtool_base="$HOME/Android/Sdk/ndk/22.1.7171670/toolchains/llvm/prebuilt/linux-x86_64" ..
+  #cmake -DOCPN_TARGET_TUPLE:STRING="Android-armhf;16;armhf"   -Dtool_base="$HOME/Android/Sdk/ndk/22.1.7171670/toolchains/llvm/prebuilt/linux-x86_64" ..
+
   set(CMAKE_TOOLCHAIN_FILE buildandroid/build_android.cmake)
   set(QT_ANDROID "ON")
   if ("${OCPN_TARGET_TUPLE}" MATCHES "Android-arm64")
@@ -433,13 +440,13 @@ if (MSVC)
 endif ()
 
 if (QT_ANDROID)
-  set(CMAKE_BUILD_TYPE Debug)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo)
   add_definitions(-D__WXQT__)
   add_definitions(-D__OCPN__ANDROID__)
   add_definitions(-DANDROID)
   add_definitions(-DNOASSERT)
-  set(CMAKE_CXX_FLAGS "-pthread -fPIC -g")
-  set(CMAKE_C_FLAGS "-pthread -fPIC -g")
+  set(CMAKE_CXX_FLAGS "-pthread -fPIC -g -O2")
+  set(CMAKE_C_FLAGS "-pthread -fPIC -g -O2")
 
   add_compile_options(
     "-Wno-inconsistent-missing-override"
@@ -741,8 +748,6 @@ message(STATUS "*** Staging to build ${PACKAGE_NAME}  ***")
 message(STATUS "*** Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "*** Will install to ${CMAKE_INSTALL_PREFIX}  ***")
 
-set(GUI_S57_DIR ${CMAKE_SOURCE_DIR}/gui/src/s57)
-
 set(GUI_HDR_DIR ${CMAKE_SOURCE_DIR}/gui/include/gui)
 set(GUI_HDRS
     ${GUI_HDR_DIR}/AboutFrame.h
@@ -784,6 +789,7 @@ set(GUI_HDRS
     ${GUI_HDR_DIR}/GoToPositionDialog.h
     ${GUI_HDR_DIR}/gshhs.h
     ${GUI_HDR_DIR}/gui_lib.h
+    ${GUI_HDR_DIR}/hotkeys_dlg.h
     ${GUI_HDR_DIR}/IDX_entry.h
     ${GUI_HDR_DIR}/iENCToolbar.h
     ${GUI_HDR_DIR}/icon_button.h
@@ -824,8 +830,10 @@ set(GUI_HDRS
     ${GUI_HDR_DIR}/routeprintout.h
     ${GUI_HDR_DIR}/RoutePropDlg.h
     ${GUI_HDR_DIR}/RoutePropDlgImpl.h
+    ${GUI_HDR_DIR}/s57chart.h
     ${GUI_HDR_DIR}/S57Light.h
     ${GUI_HDR_DIR}/S57ObjectDesc.h
+    ${GUI_HDR_DIR}/s57_ocpn_utils.h
     ${GUI_HDR_DIR}/S57QueryDialog.h
     ${GUI_HDR_DIR}/S57Sector.h
     ${GUI_HDR_DIR}/safe_mode_gui.h
@@ -860,12 +868,6 @@ set(GUI_HDRS
     ${GUI_HDR_DIR}/waypointman_gui.h
     ${GUI_HDR_DIR}/WindowDestroyListener.h
     ${GUI_HDR_DIR}/WindowDestroyListener.h
-)
-list(APPEND  GUI_HDRS
-    ${GUI_S57_DIR}/include/ogr_s57.h
-    ${GUI_S57_DIR}/include/S57ClassRegistrar.h
-    ${GUI_S57_DIR}/include/s57.h
-    ${GUI_S57_DIR}/include/s57RegistrarMgr.h
 )
 set(GUI_SRC_DIR ${CMAKE_SOURCE_DIR}/gui/src)
 set(GUI_SRC
@@ -905,6 +907,7 @@ set(GUI_SRC
     ${GUI_SRC_DIR}/GoToPositionDialog.cpp
     ${GUI_SRC_DIR}/gshhs.cpp
     ${GUI_SRC_DIR}/gui_lib.cpp
+    ${GUI_SRC_DIR}/hotkeys_dlg.cpp
     ${GUI_SRC_DIR}/IDX_entry.cpp
     ${GUI_SRC_DIR}/iENCToolbar.cpp
     ${GUI_SRC_DIR}/icon_button.cpp
@@ -914,16 +917,18 @@ set(GUI_SRC
     ${GUI_SRC_DIR}/load_errors_dlg.cpp
     ${GUI_SRC_DIR}/MarkInfo.cpp
     ${GUI_SRC_DIR}/mbtiles/mbtiles.cpp
-    ${GUI_SRC_DIR}/mbtiles/WorkerThread.cpp
-    ${GUI_SRC_DIR}/mbtiles/WorkerThread.hpp
-    ${GUI_SRC_DIR}/mbtiles/TileQueue.hpp
-    ${GUI_SRC_DIR}/mbtiles/TileDescriptor.hpp
-    ${GUI_SRC_DIR}/mbtiles/TileCache.hpp
+    ${GUI_SRC_DIR}/mbtiles/tile_thread.cpp
+    ${GUI_SRC_DIR}/mbtiles/tile_thread.h
+    ${GUI_SRC_DIR}/mbtiles/tile_queue.h
+    ${GUI_SRC_DIR}/mbtiles/tile_descr.h
+    ${GUI_SRC_DIR}/mbtiles/tile_cache.h
+    ${GUI_SRC_DIR}/mbtiles/tile_cache.cpp
     ${GUI_SRC_DIR}/MUIBar.cpp
     ${GUI_SRC_DIR}/navutil.cpp
     ${GUI_SRC_DIR}/NMEALogWindow.cpp
     ${GUI_SRC_DIR}/ocpCursor.cpp
     ${GUI_SRC_DIR}/ocpn_app.cpp
+    ${GUI_SRC_DIR}/ocpn_plugin_gui.cpp
     ${GUI_SRC_DIR}/OCPN_AUIManager.cpp
     ${GUI_SRC_DIR}/ocpndc.cpp
     ${GUI_SRC_DIR}/ocpn_frame.cpp
@@ -949,6 +954,7 @@ set(GUI_SRC
     ${GUI_SRC_DIR}/routeprintout.cpp
     ${GUI_SRC_DIR}/RoutePropDlg.cpp
     ${GUI_SRC_DIR}/RoutePropDlgImpl.cpp
+    ${GUI_SRC_DIR}/s57obj.cpp
     ${GUI_SRC_DIR}/s57chart.cpp
     ${GUI_SRC_DIR}/S57QueryDialog.cpp
     ${GUI_SRC_DIR}/safe_mode_gui.cpp
@@ -990,16 +996,6 @@ if (NOT QT_ANDROID)
           ${GUI_SRC_DIR}/initwiz/wiz_ui.cpp
           )
 endif ()
-
-list(APPEND GUI_SRC
-  ${GUI_S57_DIR}/src/ogrs57datasource.cpp
-  ${GUI_S57_DIR}/src/ogrs57layer.cpp
-  ${GUI_S57_DIR}/src/s57classregistrar.cpp
-  ${GUI_S57_DIR}/src/s57featuredefns.cpp
-  ${GUI_S57_DIR}/src/s57obj.cpp
-  ${GUI_S57_DIR}/src/s57reader.cpp
-  ${GUI_S57_DIR}/src/s57RegistrarMgr.cpp
-)
 
 if (OCPN_USE_GL)
   list(APPEND GUI_HDRS${GUI_HDR_DIR}/shaders.h)
@@ -1471,6 +1467,12 @@ target_link_libraries(${PACKAGE_NAME} PRIVATE ocpn::tinyxml)
 message(STATUS "    Adding local wxserverdisc")
 add_subdirectory(libs/wxservdisc)
 
+add_subdirectory(libs/manual)
+target_link_libraries(${PACKAGE_NAME} PRIVATE ocpn::manual)
+
+add_subdirectory(libs/s57-charts)
+target_link_libraries(${PACKAGE_NAME} PRIVATE ocpn::s57-charts)
+
 if (MSVC)
   install(FILES "cache/buildwin/libssl-3.dll" DESTINATION ".")
   install(FILES "cache/buildwin/libcrypto-3.dll" DESTINATION ".")
@@ -1865,6 +1867,7 @@ if (APPLE)
   set_target_properties(
     ${PACKAGE_NAME} PROPERTIES MACOSX_BUNDLE_INFO_PLIST
                                "${CMAKE_SOURCE_DIR}/buildosx/Info.plist.in"
+                               XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES
   )
 endif ()
 

@@ -30,6 +30,7 @@
 #include "model/ocpn_types.h"
 #include "color_types.h"
 #include "LLRegion.h"
+#include "viewport.h"
 
 //----------------------------------------------------------------------------
 //  Forward Declarations
@@ -111,9 +112,9 @@ public:
 };
 
 /**
- * Base class for all chart types. Defines the interface and common functionality
- * for all chart types in OpenCPN. Provides methods for initialization, rendering, and querying
- * chart properties and data.
+ * Base class for all chart types. Defines the interface and common
+ * functionality for all chart types in OpenCPN. Provides methods for
+ * initialization, rendering, and querying chart properties and data.
  */
 class ChartBase {
 public:

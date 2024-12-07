@@ -70,6 +70,7 @@
 #include "compass.h"
 #include "concanv.h"
 #include "displays.h"
+#include "hotkeys_dlg.h"
 #include "FontMgr.h"
 #include "glTextureDescriptor.h"
 #include "gshhs.h"
@@ -108,6 +109,8 @@
 #include "track_gui.h"
 #include "TrackPropDlg.h"
 #include "undo.h"
+
+#include "s57_ocpn_utils.h"
 
 #ifdef __ANDROID__
 #include "androidUTIL.h"
@@ -759,23 +762,26 @@ ChartCanvas::ChartCanvas(wxFrame *frame, int canvasIndex)
 #endif
 
 #ifdef HAVE_WX_GESTURE_EVENTS
-  if (!EnableTouchEvents(wxTOUCH_ZOOM_GESTURE | wxTOUCH_PRESS_GESTURES)) {
-    wxLogError("Failed to enable touch events");
+  // if (!m_glcc)
+  {
+    if (!EnableTouchEvents(wxTOUCH_ZOOM_GESTURE | wxTOUCH_PRESS_GESTURES)) {
+      wxLogError("Failed to enable touch events");
+    }
+
+    // Bind(wxEVT_GESTURE_ZOOM, &ChartCanvas::OnZoom, this);
+
+    Bind(wxEVT_LONG_PRESS, &ChartCanvas::OnLongPress, this);
+    Bind(wxEVT_PRESS_AND_TAP, &ChartCanvas::OnPressAndTap, this);
+
+    Bind(wxEVT_RIGHT_UP, &ChartCanvas::OnRightUp, this);
+    Bind(wxEVT_RIGHT_DOWN, &ChartCanvas::OnRightDown, this);
+
+    Bind(wxEVT_LEFT_UP, &ChartCanvas::OnLeftUp, this);
+    Bind(wxEVT_LEFT_DOWN, &ChartCanvas::OnLeftDown, this);
+
+    Bind(wxEVT_MOUSEWHEEL, &ChartCanvas::OnWheel, this);
+    Bind(wxEVT_MOTION, &ChartCanvas::OnMotion, this);
   }
-
-  Bind(wxEVT_GESTURE_ZOOM, &ChartCanvas::OnZoom, this);
-
-  Bind(wxEVT_LONG_PRESS, &ChartCanvas::OnLongPress, this);
-  Bind(wxEVT_PRESS_AND_TAP, &ChartCanvas::OnPressAndTap, this);
-
-  Bind(wxEVT_RIGHT_UP, &ChartCanvas::OnRightUp, this);
-  Bind(wxEVT_RIGHT_DOWN, &ChartCanvas::OnRightDown, this);
-
-  Bind(wxEVT_LEFT_UP, &ChartCanvas::OnLeftUp, this);
-  Bind(wxEVT_LEFT_DOWN, &ChartCanvas::OnLeftDown, this);
-
-  Bind(wxEVT_MOUSEWHEEL, &ChartCanvas::OnWheel, this);
-  Bind(wxEVT_MOTION, &ChartCanvas::OnMotion, this);
 #endif
 }
 
@@ -1214,6 +1220,7 @@ void ChartCanvas::SetShowGPS(bool bshow) {
 }
 
 void ChartCanvas::SetShowGPSCompassWindow(bool bshow) {
+  m_bShowCompassWin = bshow;
   if (m_Compass) {
     m_Compass->Show(m_bShowCompassWin);
     if (m_bShowCompassWin) m_Compass->UpdateStatus();
@@ -2590,7 +2597,19 @@ void ChartCanvas::OnKeyChar(wxKeyEvent &event) {
                // anything else
 
   int key_char = event.GetKeyCode();
-
+  switch (key_char) {
+    case '?':
+      HotkeysDlg(wxWindow::FindWindowByName("MainWindow")).ShowModal();
+      break;
+    case '+':
+      ZoomCanvas(g_plus_minus_zoom_factor, false);
+      break;
+    case '-':
+      ZoomCanvas(1.0 / g_plus_minus_zoom_factor, false);
+      break;
+    default:
+      break;
+  }
   if (g_benable_rotate) {
     switch (key_char) {
       case ']':
@@ -2855,18 +2874,6 @@ void ChartCanvas::OnKeyDown(wxKeyEvent &event) {
     //      Handle both QWERTY and AZERTY keyboard separately for a few control
     //      codes
     if (!g_b_assume_azerty) {
-      switch (key_char) {
-        case '+':
-        case '=':
-          ZoomCanvas(g_plus_minus_zoom_factor, false);
-          break;
-
-        case '-':
-        case '_':
-          ZoomCanvas(1.0 / g_plus_minus_zoom_factor, false);
-          break;
-      }
-
 #ifdef __WXMAC__
       if (g_benable_rotate) {
         switch (key_char) {
@@ -2877,14 +2884,17 @@ void ChartCanvas::OnKeyDown(wxKeyEvent &event) {
             // from working.
           case ']':
             RotateCanvas(1);
+            b_handled = true;
             break;
 
           case '[':
             RotateCanvas(-1);
+            b_handled = true;
             break;
 
           case '\\':
             DoRotateCanvas(0);
+            b_handled = true;
             break;
         }
       }
@@ -3188,11 +3198,10 @@ void ChartCanvas::OnKeyDown(wxKeyEvent &event) {
       }  // switch
   }
 
-#ifndef __WXMAC__
   // Allow OnKeyChar to catch the key events too.
-  // On OS X this is unnecessary since we handle all key events here.
-  if (!b_handled) event.Skip();
-#endif
+  if (!b_handled) {
+    event.Skip();
+  }
 }
 
 void ChartCanvas::OnKeyUp(wxKeyEvent &event) {
@@ -7113,7 +7122,10 @@ bool ChartCanvas::MouseEventMUIBar(wxMouseEvent &event) {
 
   cursor_region = CENTER;
   if (!g_btouch) SetCanvasCursor(event);
-  return true;
+  if (m_muiBar)
+    return true;
+  else
+    return false;
 }
 
 bool ChartCanvas::MouseEventSetup(wxMouseEvent &event, bool b_handle_dclick) {
@@ -7674,8 +7686,7 @@ bool ChartCanvas::MouseEventProcessObjects(wxMouseEvent &event) {
       if (pFindAIS) {
         m_FoundAIS_MMSI = pFindAIS->GetUserData();
         if (g_pAIS->Get_Target_Data_From_MMSI(m_FoundAIS_MMSI)) {
-          wxWindow *pwin = wxDynamicCast(this, wxWindow);
-          ShowAISTargetQueryDialog(pwin, m_FoundAIS_MMSI);
+          ShowAISTargetQueryDialog(this, m_FoundAIS_MMSI);
         }
         return true;
       }
@@ -7843,14 +7854,32 @@ bool ChartCanvas::MouseEventProcessObjects(wxMouseEvent &event) {
             brp_viz = pNearbyPoint->IsVisible();  // isolated point
 
           if (brp_viz) {
-            m_FinishRouteOnKillFocus =
-                false;  // Avoid route finish on focus change for message dialog
-            int dlg_return = OCPNMessageBox(
-                this, _("Use nearby waypoint?"), _("OpenCPN Route Create"),
-                (long)wxYES_NO | wxCANCEL | wxYES_DEFAULT);
+            wxString msg = _("Use nearby waypoint?");
+            // Don't add a mark without name to the route. Name it if needed
+            const bool noname(pNearbyPoint->GetName() == "");
+            if (noname) {
+              msg =
+                  _("Use nearby nameless waypoint and name it M with"
+                    " a unique number?");
+            }
+            // Avoid route finish on focus change for message dialog
+            m_FinishRouteOnKillFocus = false;
+            int dlg_return =
+                OCPNMessageBox(this, msg, _("OpenCPN Route Create"),
+                               (long)wxYES_NO | wxCANCEL | wxYES_DEFAULT);
             m_FinishRouteOnKillFocus = true;
-
             if (dlg_return == wxID_YES) {
+              if (noname) {
+                if (m_pMouseRoute) {
+                  int last_wp_num = m_pMouseRoute->GetnPoints();
+                  // AP-ECRMB will truncate to 6 characters
+                  wxString guid_short = m_pMouseRoute->GetGUID().Left(2);
+                  wxString wp_name = wxString::Format(
+                      "M%002i-%s", last_wp_num + 1, guid_short);
+                  pNearbyPoint->SetName(wp_name);
+                } else
+                  pNearbyPoint->SetName("WPXX");
+              }
               pMousePoint = pNearbyPoint;
 
               // Using existing waypoint, so nothing to delete for undo.
@@ -11823,7 +11852,7 @@ emboss_data *ChartCanvas::EmbossOverzoomIndicator(ocpnDC &dc) {
       ChartTypeEnum current_type = (ChartTypeEnum)cte.GetChartType();
       if (current_type == CHART_TYPE_MBTILES) {
         ChartBase *pChart = m_pQuilt->GetRefChart();
-        ChartMBTiles *ptc = dynamic_cast<ChartMBTiles *>(pChart);
+        ChartMbTiles *ptc = dynamic_cast<ChartMbTiles *>(pChart);
         if (ptc) {
           zoom_factor = ptc->GetZoomFactor();
         }
