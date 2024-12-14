@@ -368,6 +368,42 @@ void SendNMEASentenceToAllPlugIns(const wxString& sentence) {
 #endif
 }
 
+void SendN2KMessageToAllPlugIns(const PlugIn_N2K_Message& msg) {
+#ifndef __WXMSW__
+  sigaction(SIGSEGV, NULL, &sa_all_PIM_previous);
+  struct sigaction temp;
+  sigaction(SIGSEGV, NULL, &temp);
+  temp.sa_handler = catch_signals_PIM;
+  sigemptyset(&temp.sa_mask);
+  temp.sa_flags = 0;
+  sigaction(SIGSEGV, &temp, NULL);
+#endif
+
+  auto plugin_array = PluginLoader::getInstance()->GetPlugInArray();
+  for (unsigned int i = 0; i < plugin_array->GetCount(); i++) {
+    PlugInContainer* pic = plugin_array->Item(i);
+    if (pic->m_enabled && pic->m_init_state) {
+      if (pic->m_cap_flag & WANTS_N2K_MESSAGES) {
+#ifndef __WXMSW__
+        if (sigsetjmp(env_PIM, 1)) {
+          sigaction(SIGSEGV, &sa_all_PIM_previous, NULL);
+          return;
+        } else
+#endif
+        {
+          auto plugin_120 = dynamic_cast<opencpn_plugin_120*>(pic->m_pplugin);
+          if (plugin_120) {
+            plugin_120->SetN2KMessage(msg);
+          }
+        }
+      }
+    }
+  }
+#ifndef __WXMSW__
+  sigaction(SIGSEGV, &sa_all_PIM_previous, NULL);
+#endif
+}
+
 int GetJSONMessageTargetCount() {
   int rv = 0;
   auto plugin_array = PluginLoader::getInstance()->GetPlugInArray();

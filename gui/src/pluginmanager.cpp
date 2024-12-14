@@ -219,6 +219,7 @@ WX_DEFINE_LIST(Plugin_HyperlinkList);
 
 wxDEFINE_EVENT(EVT_N0183_PLUGIN, ObservedEvt);
 wxDEFINE_EVENT(EVT_SIGNALK, ObservedEvt);
+wxDEFINE_EVENT(EVT_N2K_PLUGIN, ObservedEvt);
 
 static void SendAisJsonMessage(std::shared_ptr<const AisTargetData> pTarget) {
   //  Only send messages if someone is listening...
@@ -974,6 +975,12 @@ void PlugInManager::InitCommListeners(void) {
   Bind(EVT_SIGNALK, [&](ObservedEvt ev) {
     HandleSignalK(UnpackEvtPointer<SignalkMsg>(ev));
   });
+
+  Nmea2000Msg n2k_msg(static_cast<uint64_t>(1));
+  m_listener_N2K.Listen(n2k_msg, this, EVT_N2K_PLUGIN);
+
+  Bind(EVT_N2K_PLUGIN,
+       [&](ObservedEvt ev) { HandleN2K(UnpackEvtPointer<Nmea2000Msg>(ev)); });
 }
 
 void PlugInManager::HandleN0183(std::shared_ptr<const Nmea0183Msg> n0183_msg) {
@@ -1021,6 +1028,65 @@ void PlugInManager::HandleSignalK(std::shared_ptr<const SignalkMsg> sK_msg) {
 
   int errors = jsonReader.Parse(msgTerminated, &root);
   if (errors == 0) SendJSONMessageToAllPlugins(wxT("OCPN_CORE_SIGNALK"), root);
+}
+
+void PlugInManager::HandleN2K(std::shared_ptr<const Nmea2000Msg> n2k_msg) {
+  if (!n2k_msg) {
+    return;
+  }
+
+  PlugIn_N2K_Message plugin_msg;
+
+  try {
+    // Extract PGN from payload
+    if (n2k_msg->payload.size() < 8) {
+      return;
+    }
+
+    plugin_msg.pgn = (n2k_msg->payload.at(5) << 16) |
+                     (n2k_msg->payload.at(4) << 8) | n2k_msg->payload.at(3);
+
+    // Copy header fields
+    plugin_msg.priority = n2k_msg->payload.at(2);
+    plugin_msg.source = n2k_msg->payload.at(7);
+    plugin_msg.destination = n2k_msg->payload.at(6);
+
+    // Copy payload data
+    const size_t header_size = 8;  // First 8 bytes are header
+    plugin_msg.length = n2k_msg->payload.size() - header_size;
+    if (plugin_msg.length > sizeof(plugin_msg.data)) {
+      plugin_msg.length = sizeof(plugin_msg.data);
+    }
+
+    memcpy(plugin_msg.data, n2k_msg->payload.data() + header_size,
+           plugin_msg.length);
+
+    // Copy source description
+    if (n2k_msg->source) {
+      strncpy(plugin_msg.source_name, n2k_msg->source->to_string().c_str(),
+              sizeof(plugin_msg.source_name) - 1);
+      plugin_msg.source_name[sizeof(plugin_msg.source_name) - 1] = '\0';
+    } else {
+      strncpy(plugin_msg.source_name, "unknown",
+              sizeof(plugin_msg.source_name) - 1);
+    }
+
+    // Always set system timestamp to current time
+    plugin_msg.system_timestamp =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
+
+    // Set device timestamp if available from message
+    auto device_timestamp = n2k_msg->GetTimestamp();
+    plugin_msg.device_timestamp =
+        device_timestamp.value_or(0);  // 0 if no timestamp available
+
+    SendN2KMessageToAllPlugIns(plugin_msg);
+
+  } catch (const std::exception& e) {
+    MESSAGE_LOG << "Exception in HandleN2K: " << e.what();
+  }
 }
 
 /**

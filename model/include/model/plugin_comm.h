@@ -30,6 +30,7 @@
 #include <wx/string.h>
 
 #include "model/ocpn_types.h"
+#include "ocpn_plugin.h"
 
 void SendMessageToAllPlugins(const wxString& message_id,
                              const wxString& message_body);
@@ -50,7 +51,34 @@ void SendPreShutdownHookToPlugins();
 
 void SendCursorLatLonToAllPlugIns(double lat, double lon);
 
+/**
+ * Distribute a NMEA 0183 sentence to all plugins that have registered interest
+ * by setting the WANTS_NMEA_SENTENCES capability flag.
+ *
+ * The sentence will only be sent to plugins that:
+ * - Are enabled
+ * - Have been initialized
+ * - Have declared WANTS_NMEA_SENTENCES in their Init() return flags
+ *
+ * @param sentence A complete NMEA 0183 sentence including delimiters and
+ * checksum
+ */
 void SendNMEASentenceToAllPlugIns(const wxString& sentence);
+
+/**
+ * Distribute a NMEA 2000 message to all plugins that have registered interest
+ * by setting the WANTS_N2K_MESSAGES capability flag.
+ *
+ * The message will only be sent to plugins that:
+ * - Are enabled
+ * - Have been initialized
+ * - Have declared WANTS_N2K_MESSAGES in their Init() return flags
+ * - Are using API version 1.20 or greater
+ *
+ * @param msg Complete NMEA 2000 message containing PGN, header fields, and raw
+ * data
+ */
+void SendN2KMessageToAllPlugIns(const PlugIn_N2K_Message& msg);
 
 int GetJSONMessageTargetCount();
 

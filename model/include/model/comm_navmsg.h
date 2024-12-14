@@ -26,6 +26,7 @@
 #define _DRIVER_NAVMSG_H
 
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <vector>
 #include <string>
@@ -213,7 +214,10 @@ public:
 
 protected:
   NavMsg(const NavAddr::Bus& _bus, std::shared_ptr<const NavAddr> src)
-      : bus(_bus), source(src) {};
+      : bus(_bus), source(src), timestamp_usec(0) {};
+
+private:
+  uint64_t timestamp_usec;  // Microseconds since Unix epoch
 };
 
 /**
@@ -240,6 +244,10 @@ public:
 
   virtual ~Nmea2000Msg() = default;
 
+  /** Get timestamp in microseconds since Unix epoch.
+   * Returns std::nullopt if no timestamp is available */
+  std::optional<uint64_t> GetTimestamp() const;
+
   std::string key() const { return std::string("n2000-") + PGN.to_string(); };
 
   /** Print "bus key id payload" */
@@ -248,6 +256,13 @@ public:
   N2kPGN PGN;  // For TX message, unparsed
   std::vector<unsigned char> payload;
   int priority;
+
+private:
+  /** Parse timestamp from message. */
+  std::optional<uint64_t> ParseTimestamp() const;
+
+  // Cache for parsed timestamp
+  mutable std::optional<uint64_t> parsed_timestamp;
 };
 
 /** A regular Nmea0183 message. */

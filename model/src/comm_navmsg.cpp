@@ -35,6 +35,7 @@
 #include <iomanip>
 
 #include "model/comm_driver.h"
+#include "N2kMessages.h"
 
 std::string NavAddr::BusToString(NavAddr::Bus b) {
   switch (b) {
@@ -85,4 +86,80 @@ std::string Nmea2000Msg::to_string() const {
                 [&s](unsigned char c) { s.append(CharToString(c)); });
 
   return NavMsg::to_string() + " " + PGN.to_string() + " " + s;
+}
+
+std::optional<uint64_t> Nmea2000Msg::GetTimestamp() const {
+  if (parsed_timestamp.has_value()) {
+    return parsed_timestamp;
+  }
+
+  parsed_timestamp = ParseTimestamp();
+  return parsed_timestamp;
+}
+
+std::optional<uint64_t> Nmea2000Msg::ParseTimestamp() const {
+  if (payload.size() < 14) {  // Need at least 8 bytes header + 6 bytes data
+    return std::nullopt;
+  }
+
+  const size_t data_start = 8;  // Skip header
+
+  switch (PGN.pgn) {
+    case 126992: {  // System Time
+      // Data after 8-byte header:
+      // Offset 0: Time Source
+      // Offset 1: Reserved
+      // Offset 2-3: Days since 1970
+      // Offset 4-7: Seconds since midnight
+      if (payload.size() < data_start + 8) {
+        return std::nullopt;
+      }
+
+      uint16_t days_since_1970 =
+          (payload[data_start + 3] << 8) | payload[data_start + 2];
+      uint32_t seconds_raw =
+          (payload[data_start + 7] << 24) | (payload[data_start + 6] << 16) |
+          (payload[data_start + 5] << 8) | payload[data_start + 4];
+      double seconds = seconds_raw * 0.0001;
+
+      uint64_t timestamp = days_since_1970 * 24ULL * 60ULL * 60ULL * 1000000ULL;
+      timestamp += static_cast<uint64_t>(seconds * 1000000.0);
+      return timestamp;
+    }
+    case 129029: {  // GNSS Position Data
+      // Date/Time starts at byte 34 in data section
+      const size_t time_offset = 34;
+      if (payload.size() < data_start + time_offset + 6) {
+        return std::nullopt;
+      }
+
+      uint16_t days_since_1970 = (payload[data_start + time_offset + 1] << 8) |
+                                 payload[data_start + time_offset];
+      uint32_t seconds_raw = (payload[data_start + time_offset + 5] << 24) |
+                             (payload[data_start + time_offset + 4] << 16) |
+                             (payload[data_start + time_offset + 3] << 8) |
+                             payload[data_start + time_offset + 2];
+      double seconds = seconds_raw * 0.0001;
+
+      uint64_t timestamp = days_since_1970 * 24ULL * 60ULL * 60ULL * 1000000ULL;
+      timestamp += static_cast<uint64_t>(seconds * 1000000.0);
+      return timestamp;
+    }
+
+    case 129033: {  // Local Time Offset
+      uint16_t days_since_1970 =
+          (payload[data_start + 1] << 8) | payload[data_start];
+      uint32_t seconds_raw =
+          (payload[data_start + 5] << 24) | (payload[data_start + 4] << 16) |
+          (payload[data_start + 3] << 8) | payload[data_start + 2];
+      double seconds = seconds_raw * 0.0001;
+
+      uint64_t timestamp = days_since_1970 * 24ULL * 60ULL * 60ULL * 1000000ULL;
+      timestamp += static_cast<uint64_t>(seconds * 1000000.0);
+      return timestamp;
+    }
+
+    default:
+      return std::nullopt;
+  }
 }
