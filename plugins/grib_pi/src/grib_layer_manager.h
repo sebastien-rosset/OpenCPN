@@ -81,6 +81,7 @@ public:
   /** Get latest ref time across enabled layers. */
   time_t GetLatestRefDateTime() const;
 
+  /** Return true if at least one layer is enabled and OK. */
   bool IsOK() const;
 
 private:

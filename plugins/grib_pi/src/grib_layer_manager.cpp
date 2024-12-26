@@ -29,8 +29,14 @@ GribLayerManager::GribLayerManager() {}
 
 GribLayerManager::~GribLayerManager() { ClearAllLayers(); }
 
-// Initial implementation - treat as single layer for compatibility
-bool GribLayerManager::IsOK() const { return m_layers[0].IsOK(); }
+bool GribLayerManager::IsOK() const {
+  for (int i = 0; i < MAX_LAYERS; i++) {
+    if (m_layers[i].IsEnabled() && m_layers[i].IsOK()) {
+      return true;
+    }
+  }
+  return false;
+}
 
 void GribLayerManager::AssignLayer(int index, GRIBFile* file) {
   assert(index >= 0 && index < MAX_LAYERS);

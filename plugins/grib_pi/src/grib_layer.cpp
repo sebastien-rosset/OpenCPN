@@ -30,7 +30,9 @@ GribLayer::GribLayer() : m_bEnabled(false), m_pGribFile(nullptr) {}
 
 GribLayer::~GribLayer() { Clear(); }
 
-bool GribLayer::IsOK() const { return m_pGribFile && m_pGribFile->IsOK(); }
+bool GribLayer::IsOK() const {
+  return m_pGribFile && m_pGribFile->IsOK();
+}
 
 void GribLayer::Assign(GRIBFile* file) {
   if (m_pGribFile == file) return;
@@ -50,11 +52,17 @@ int GribLayer::GetGribIndex(int recordType) const {
                      : wxNOT_FOUND;
 }
 
-void GribLayer::SetEnabled(bool enabled) { m_bEnabled = enabled; }
+void GribLayer::SetEnabled(bool enabled) {
+  m_bEnabled = enabled;
+}
 
-bool GribLayer::IsEnabled() const { return m_bEnabled; }
+bool GribLayer::IsEnabled() const {
+  return m_bEnabled;
+}
 
-GRIBFile* GribLayer::GetGribFile() const { return m_pGribFile; }
+GRIBFile* GribLayer::GetGribFile() const {
+  return m_pGribFile;
+}
 
 ArrayOfGribRecordSets* GribLayer::GetRecordSetArrayPtr() const {
   return m_pGribFile ? m_pGribFile->GetRecordSetArrayPtr() : nullptr;
