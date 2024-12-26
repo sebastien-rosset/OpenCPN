@@ -7,10 +7,12 @@ The changes allow users to load multiple GRIB files simultaneously and view them
 
 ## Key Features
 
-- Support for up to 6 GRIB layers.
-- Clear indication of which GRIB files are loaded into memory.
+- Support for multiple GRIB layers. Each layer can load one GRIB file.
+- Labels to indicate the names of the GRIBs for each layer.
 - Each layer can be enabled/disabled independently.
-- Backward compatibility with existing weather routing plugin.
+- API to get GRIB data:
+    - For a specific layer.
+    - Across all GRIB layers, based on configured algorithm.
 
 ## Architecture Changes
 
@@ -46,9 +48,12 @@ class GribLayerManager {
    - Modify data access methods to get data from all enabled layers.
 
 2. **Data Access Layer**
-   - When multiple GRIB files provide data for the same parameter:
-     - Uses data with best accuracy
-     - Falls back to layer priority (lower index = higher priority)
+   - APIs to get GRIB data for a specified layer.
+      - Use case: compute weather routing and compare results across different weather models.
+   - APIs to get GRIB data across layers.
+      - When multiple GRIB files provide data for the same parameter type:
+         - Return data with best accuracy.
+         - Falls back to layer priority (lower index = higher priority)
 
 3. **UI Changes**
    - Add layer control buttons.
