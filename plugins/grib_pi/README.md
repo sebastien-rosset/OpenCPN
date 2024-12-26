@@ -64,13 +64,37 @@ class GribLayerManager {
 
 The implementation follows a phased approach:
 
-1. Initial Phase
-   - Infrastructure for multiple layers (GribLayer and GribLayerManager).
+1. Phase 1:
+   - Add new classes for multiple GRIB layers: GribLayer and GribLayerManager.
    - Hard-code number of layers to 1.
+   - No UI changes.
+   - Replace `m_bGRIBActiveFile` with `m_pLayerManager`.
+      - During the refactor work, keep both `m_pLayerManage` and `m_bGRIBActiveFile` while refactoring.
+        Do one field/member function at a time and make sure at each iteration the code can compile and run without regressions.
+      - Identify all the unique field/member access of `m_bGRIBActiveFile`.
+      - Refactor all access to `m_bGRIBActiveFile` with `GetGribLayerManager()`, which should provides member functions.
+      - The layer manager needs to expose functions that span all layers, and functions that are for specific layers.
+      - For example, define `LayerManager.IsOK()`. This API could reasonably evolve to mean "at least one enabled layer is OK",
+        since that would mean the manager has valid data to display.
+        The signature can stay the same while the implementation changes.
+      - `GetRefDateTime()` This is problematic because each layer could have a different reference time.
+        `GetRefDateTime()` returning a single time doesn't make sense in a multi-layer context.
+          - Change it to GetLayerRefDateTime(int layerIndex) to get a specific layer's time
+          - Consider if we need a `GetEarliestRefDateTime()` or `GetLatestRefDateTime()` across all enabled layers
+
+```c++
+m_bGRIBActiveFile->IsOK
+m_bGRIBActiveFile->m_GribIdxArray.Index(Idx_WIND_VX)
+m_bGRIBActiveFile->GetRecordSetArrayPtr()
+m_bGRIBActiveFile->GetRefDateTime()
+m_bGRIBActiveFile->GetFileNames()
+```
+
+2. Phase 2:
    - Basic UI for layer management.
    - Maintain backward compatibility.
 
-2. Future Phases
+3. Phase 3:
    - Enhanced layer controls
    - Layer blending options
    - Extended data interpolation
