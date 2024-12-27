@@ -478,7 +478,7 @@ void GRIBUICtrlBar::OpenFile(bool newestFile) {
 
   ArrayOfGribRecordSets *rsa = m_bGRIBActiveFile->GetRecordSetArrayPtr();
   wxString title;
-  if (m_bGRIBActiveFile->IsOK()) {
+  if (GetGribLayerManager()->IsOK()) {
     wxFileName fn(m_bGRIBActiveFile->GetFileNames()[0]);
     title = (_("File: "));
     title.Append(fn.GetFullName());
@@ -1357,7 +1357,7 @@ void GRIBUICtrlBar::StopPlayBack() {
 }
 
 void GRIBUICtrlBar::TimelineChanged() {
-  if (!m_bGRIBActiveFile || (m_bGRIBActiveFile && !m_bGRIBActiveFile->IsOK())) {
+  if (!m_bGRIBActiveFile || !GetGribLayerManager()->IsOK()) {
     pPlugIn->GetGRIBOverlayFactory()->SetGribTimelineRecordSet(nullptr);
     return;
   }
@@ -1920,7 +1920,7 @@ void GRIBUICtrlBar::OnNext(wxCommandEvent &event) {
 }
 
 void GRIBUICtrlBar::ComputeBestForecastForNow() {
-  if (!m_bGRIBActiveFile || (m_bGRIBActiveFile && !m_bGRIBActiveFile->IsOK())) {
+  if (!m_bGRIBActiveFile || (m_bGRIBActiveFile && !GetGribLayerManager()->IsOK())) {
     pPlugIn->GetGRIBOverlayFactory()->SetGribTimelineRecordSet(nullptr);
     return;
   }
@@ -1983,7 +1983,7 @@ void GRIBUICtrlBar::SetTimeLineMax(bool SetValue) {
         m_OverlaySettings.GetMinFromIndex(m_OverlaySettings.m_SlicesPerUpdate);
     m_sTimeline->SetMax(m_TimeLineHours * 60 / stepmin);
   } else {
-    if (m_bGRIBActiveFile && m_bGRIBActiveFile->IsOK()) {
+    if (GetGribLayerManager()->IsOK()) {
       ArrayOfGribRecordSets *rsa = m_bGRIBActiveFile->GetRecordSetArrayPtr();
       m_sTimeline->SetMax(rsa->GetCount() - 1);
     }

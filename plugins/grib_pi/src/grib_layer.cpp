@@ -31,7 +31,7 @@ GribLayer::GribLayer() : m_bEnabled(false), m_pGribFile(nullptr) {}
 GribLayer::~GribLayer() { Clear(); }
 
 bool GribLayer::IsOK() const {
-  return m_pGribFile && m_pGribFile->IsOK();
+  return m_bEnabled && m_pGribFile && m_pGribFile->IsOK();
 }
 
 void GribLayer::Assign(GRIBFile* file) {
