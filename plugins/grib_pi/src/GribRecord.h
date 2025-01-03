@@ -126,18 +126,129 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define LV_SIGMA 107
 #define LV_ATMOS_ENT 10
 #define LV_ATMOS_ALL 200
-//---------------------------------------------------------
+
+/**
+ * Identifies the numerical weather prediction model and data center.
+ *
+ * This enum represents the source model/center of GRIB data. The enum values
+ * are used to identify the source during parsing and affect how data is
+ * handled.
+ *
+ * The values are set based on specific combinations of:
+ * - idCenter (WMO originating center id)
+ * - idModel (model id within center)
+ * - idGrid (grid definition id)
+ */
 enum DataCenterModel {
+  /** NOAA Global Forecast System (GFS)
+   *  - Global coverage
+   *  - Resolution: ~13km (0.125°)
+   *  - Forecast length: 16 days
+   *  - Update frequency: Every 6 hours
+   *  - GRIB1: Center 7, Model 81/96, Grid 4/255
+   *  - GRIB2: Center 7, Model 2
+   */
   NOAA_GFS,
+
+  /** NOAA NCEP Wave Watch III Global Wave Model
+   *  - Global ocean wave forecasts
+   *  - Resolution: 0.25° to 0.5°
+   *  - Parameters: Wave height, direction, period
+   *  - Update frequency: Every 6 hours
+   *  - GRIB1: Center 7, Model 88, Grid 255
+   */
   NOAA_NCEP_WW3,
+
+  /** NOAA NCEP Sea Surface Temperature (SST) Analysis
+   *  - Global SST analysis
+   *  - Resolution: 0.5°
+   *  - Daily updates
+   *  - Blended satellite & in-situ observations
+   *  - GRIB1: Center 7, Model 44, Grid 173/235
+   */
   NOAA_NCEP_SST,
+
+  /** NOAA Real-Time Ocean Forecast System
+   *  - Global ocean currents and conditions
+   *  - Resolution: 1/12° (~9km)
+   *  - Forecast length: 8 days
+   *  - Parameters: Currents, temperature, salinity
+   *  - GRIB1: Center 7, Model 45, Grid 255
+   */
   NOAA_RTOFS,
+
+  /** US Navy FNMOC Global Wave Watch III
+   *  - Global wave model
+   *  - Resolution: 0.25°
+   *  - Forecast length: 7 days
+   *  - Update frequency: Every 12 hours
+   *  - GRIB1: Center 58, Model 110, Grid 240
+   */
   FNMOC_WW3_GLB,
+
+  /** US Navy FNMOC Mediterranean Wave Watch III
+   *  - Regional Mediterranean wave model
+   *  - Higher resolution than global model
+   *  - Forecast length: 5 days
+   *  - Update frequency: Every 12 hours
+   *  - GRIB1: Center 58, Model 111, Grid 179
+   */
   FNMOC_WW3_MED,
+
+  /** Norwegian Meteorological Institute (MET Norway)
+   *  - Regional Nordic/Arctic focus
+   *  - Multiple models and resolutions
+   *  - GRIB1: Center 88
+   */
   NORWAY_METNO,
+
+  /** ECMWF ERA5 Reanalysis
+   *  - Global reanalysis dataset
+   *  - Resolution: ~31km (0.28125°)
+   *  - Hourly data
+   *  - High-quality consistent climate data
+   *  - GRIB1: Center 98
+   */
   ECMWF_ERA5,
+
+  /** KNMI HIRLAM Regional Model
+   *  - High Resolution Limited Area Model
+   *  - Coverage: Northern Europe
+   *  - Resolution: 11km
+   *  - Forecast length: 48 hours
+   *  - GRIB1: Center 99, Model 8
+   */
   KNMI_HIRLAM,
+
+  /** KNMI HARMONIE-AROME Model
+   *  - Very high resolution regional model
+   *  - Coverage: Netherlands/North Sea
+   *  - Resolution: 2.5km
+   *  - Forecast length: 48 hours
+   *  - Specialized for small-scale weather
+   *  - GRIB1: Center 99, Model 2
+   */
   KNMI_HARMONIE_AROME,
+
+  /** NOAA High-Resolution Rapid Refresh (HRRR)
+   *  - Highest resolution operational NOAA model
+   *  - Resolution: 3km
+   *  - Coverage: Continental US
+   *  - Update frequency: Hourly
+   *  - Forecast length: 18h (extended to 48h for 00/06/12/18Z runs)
+   *  - Best for:
+   *    * Short-term forecasts (0-18h)
+   *    * Severe weather prediction
+   *    * Mountain/valley wind patterns
+   *    * Thunderstorm development
+   *  - GRIB2: Center 7, Model 83
+   */
+  NOAA_HRRR,
+
+  /** Fallback for unrecognized data centers
+   *  - Used when source doesn't match known centers
+   *  - Allows graceful handling of new/unknown sources
+   */
   OTHER_DATA_CENTER
 };
 
@@ -252,6 +363,22 @@ public:
                                           const GribRecord &rec2x,
                                           const GribRecord &rec2y, double d);
 
+  /**
+   * Creates a new GribRecord containing the vector magnitude from X/Y
+   * components.
+   *
+   * Creates a new record where each grid point contains the magnitude
+   * calculated from corresponding X/Y values in the input records using
+   * sqrt(x^2 + y^2). Common uses include:
+   * - Computing wind speed from U/V velocity components
+   * - Computing current speed from East/North components
+   * - Computing wave height from directional components
+   *
+   * @param rec1 X-component record (e.g., U wind or East current)
+   * @param rec2 Y-component record (e.g., V wind or North current)
+   * @return New GribRecord with calculated magnitudes, or NULL if records are
+   *         incompatible (different grids or undefined values)
+   */
   static GribRecord *MagnitudeRecord(const GribRecord &rec1,
                                      const GribRecord &rec2);
 
@@ -330,15 +457,6 @@ public:
    * Returns the numerical weather prediction model/center that produced this
    * data.
    *
-   * Known data centers and models include:
-   * - NOAA_GFS: NOAA Global Forecast System
-   * - NOAA_NCEP_WW3: NOAA NCEP Wave Watch III model
-   * - NOAA_RTOFS: NOAA Real-Time Ocean Forecast System
-   * - FNMOC_WW3_GLB: US Navy FNMOC global Wave Watch III
-   * - ECMWF_ERA5: European ECMWF ERA5 reanalysis
-   * - KNMI_HIRLAM: Netherlands KNMI HIRLAM model
-   * - OTHER_DATA_CENTER: Other/unknown sources
-   *
    * @return Identifier for the data source model as defined in DataCenterModel
    * enum
    *
@@ -416,13 +534,13 @@ public:
    */
   int getPeriodP2() const { return periodP2; }
   /**
-   * Returns the forecast period in seconds from reference time.
+   * Returns the forecast time offset in seconds from the reference time.
    *
-   * This is the time offset from the model reference time (analysis time)
-   * when this data is valid.
+   * For example, if reference time is 2024-01-01 00:00Z and offset is 3600,
+   * this represents the forecast for 2024-01-01 01:00Z.
    *
-   * @return Time offset in seconds from reference time.
-   * @see getRecordRefDate()
+   * @see getRecordRefDate() Returns the reference time this offset is based on
+   * @see getRecordCurrentDate() Returns the forecast time (ref_time + offset)
    */
   zuint getPeriodSec() const { return periodsec; }
   /**
@@ -439,7 +557,6 @@ public:
    */
   zuchar getTimeRange() const { return timeRange; }
 
-  // Number of points in the grid
   /**
    * Returns the number of points in the longitude (i) direction of the grid.
    *
@@ -453,13 +570,13 @@ public:
    */
   int getNj() const { return Nj; }
   /**
-   * Returns the grid spacing in longitude (i) direction in degrees.
+   * Returns the grid spacing in longitude (i) direction, in degrees.
    *
    * @return Grid spacing in degrees longitude
    */
   double getDi() const { return Di; }
   /**
-   * Returns the grid spacing in latitude (j) direction in degrees.
+   * Returns the grid spacing in latitude (j) direction, in degrees.
    *
    * @return Grid spacing in degrees latitude
    * @note Can be negative if grid runs from north to south
@@ -486,14 +603,23 @@ public:
   /**
    * Get spatially interpolated value at exact lat/lon position.
    *
-   * This method performs specialized vector interpolation for meteorological
-   * vector fields like wind or ocean currents.
-   *
    * @param px Longitude in degrees.
    * @param py Latitude in degrees.
-   * @param numericalInterpolation Use bilinear interpolation if true.
-   * @param dir Handle directional interpolation if true (e.g. for wind
-   * direction).
+   * @param numericalInterpolation
+   *   - When false, uses nearest neighbor interpolation by selecting closest
+   *     grid point.
+   *   - When true, performs interpolation:
+   *     - With 4 points: Uses bilinear interpolation for scalar
+   *       values, or angular interpolation for directional values.
+   *     - With 3 points: Uses triangular interpolation for scalar values
+   *       only, returns GRIB_NOTDEF for directional values.
+   *
+   * @param dir
+   *   - When true, treats values as angles in degrees and uses
+   *     specialized angular interpolation to handle 0°/360° wrapping.
+   *     Only works when all 4 surrounding grid points have valid data.
+   *     Used for wind direction, current direction, etc.
+   *   - If false, performs linear interpolation for scalar values.
    * @return Spatially interpolated value or GRIB_NOTDEF if outside grid.
    */
   double getInterpolatedValue(double px, double py,
@@ -516,8 +642,8 @@ public:
    * @param GRX X-component record of the vector field (u-component, West-East)
    * @param GRY Y-component record of the vector field (v-component,
    * South-North)
-   * @param px [in] Longitude in degrees of the interpolation point.
-   * @param py [in] Latitude in degrees of the interpolation point.
+   * @param lon [in] Longitude in degrees of the interpolation point.
+   * @param lat [in] Latitude in degrees of the interpolation point.
    * @param numericalInterpolation If true, uses bilinear interpolation; if
    * false, uses nearest neighbor interpolation.
    *
@@ -525,7 +651,8 @@ public:
    * conventions where u is positive eastward and v is positive northward
    */
   static bool getInterpolatedValues(double &M, double &A, const GribRecord *GRX,
-                                    const GribRecord *GRY, double px, double py,
+                                    const GribRecord *GRY, double lon,
+                                    double lat,
                                     bool numericalInterpolation = true);
 
   /**
@@ -587,6 +714,24 @@ public:
   void print();
   bool isFilled() { return m_bfilled; }
   void setFilled(bool val = true) { m_bfilled = val; }
+  /** Get the GRIB version. */
+  unsigned char getEditionNumber() const { return editionNumber; }
+
+  /**
+   * Get the area of a GRIB region accounting for latitude.
+   *
+   * @return Total area in square degrees where valid data exists
+   */
+  double GetGribArea() const;
+
+  /**
+   * Calculate area of intersection between two GRIB regions.
+   *
+   * @param r2 Second GRIB region to compare against.
+   * @return Area in square degrees where both regions have valid data, or 0 if
+   * no overlap exists.
+   */
+  double GetIntersectionArea(const GribRecord *r2) const;
 
 private:
   // Is a point within the extent of the grid?
@@ -747,11 +892,16 @@ protected:
   // SECTION 2: THE GRID DESCRIPTION SECTION (GDS)
   zuchar NV, PV;
   zuchar gridType;
-  zuint Ni, Nj;
-  double La1, Lo1;  ///< Grid origin coordinates
-  double La2, Lo2;  ///< Grid end coordinates
-  double latMin, lonMin, latMax, lonMax;
-  double Di, Dj;
+  zuint Ni;  //!< Number of points in the longitude direction of the grid.
+  zuint Nj;  //!< Number of points in the latitude direction of the grid.
+  double La1, Lo1;  //!< Grid origin coordinates
+  double La2, Lo2;  //!< Grid end coordinates
+  double latMin;    //!< Minimum latitude of the grid.
+  double lonMin;    //!< Minimum longitude of the grid.
+  double latMax;    //!< Maximum latitude of the grid.
+  double lonMax;    //!< Maximum longitude of the grid.
+  double Di;        //!< Grid spacing in longitude (i) direction, in degrees.
+  double Dj;        //!< Grid spacing in latitude (j) direction, in degrees.
   zuchar resolFlags, scanFlags;
   bool hasDiDj;
   bool isEarthSpheric;
@@ -789,7 +939,19 @@ inline bool GribRecord::hasValue(int i, int j) const {
   return (m & c) != 0;
 }
 
-//-----------------------------------------------------------------
+/**
+ * Check if a point is within the GRIB record's geographic coverage.
+ *
+ * @param x Longitude in degrees [-180,360]
+ * @param y Latitude in degrees [-90,90]
+ * @return true if point is within the grid bounds
+ *
+ * Checks both latitude and longitude are within grid coverage.
+ * Handles grids that:
+ * - Cross the 180° meridian
+ * - Cover the full globe (360° longitude)
+ * - Have negative grid spacing
+ */
 inline bool GribRecord::isPointInMap(double x, double y) const {
   return isXInMap(x) && isYInMap(y);
   /*    if (Dj < 0)
@@ -797,7 +959,13 @@ inline bool GribRecord::isPointInMap(double x, double y) const {
       else
           return x>=Lo1 && y>=La1 && x<=Lo1+(Ni-1)*Di && y<=La1+(Nj-1)*Dj;*/
 }
-//-----------------------------------------------------------------
+
+/**
+ * Check if a longitude is within the GRIB record's coverage.
+ *
+ * @param x Longitude in degrees [-180,360]
+ * @return true if longitude is within grid bounds
+ */
 inline bool GribRecord::isXInMap(double x) const {
   //    return x>=Lo1 && x<=Lo1+(Ni-1)*Di;
   // printf ("%f %f %f\n", Lo1, Lo2, x);
@@ -813,7 +981,21 @@ inline bool GribRecord::isXInMap(double x) const {
     return x >= Lo2 && x <= maxLo;
   }
 }
-//-----------------------------------------------------------------
+
+/**
+ * Check if a latitude is within the GRIB record's coverage.
+ *
+ * @param y Latitude in degrees [-90,90]
+ * @return true if latitude is within grid bounds
+ *
+ * Handles grids with:
+ * - Positive latitude spacing (south to north)
+ * - Negative latitude spacing (north to south)
+ *
+ * La1: Latitude of first point
+ * La2: Latitude of last point
+ * Dj: Latitude spacing between points
+ */
 inline bool GribRecord::isYInMap(double y) const {
   if (Dj < 0)
     return y <= La1 && y >= La2;

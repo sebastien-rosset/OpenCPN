@@ -174,6 +174,13 @@ private:
 protected:
   wxFlexGridSizer* m_fgCtrlBarSizer;
   wxBitmapButton* m_bpPrev;
+  /**
+   * Dropdown list (wxChoice) showing all available forecast valid times.
+   *
+   * This control displays a list of timestamps when forecasts are valid,
+   * allowing users to directly select a specific forecast time. Each item shows
+   * a formatted timestamp like "2024-02-11 06:00Z".
+   */
   wxChoice* m_cRecordForecast;
   wxBitmapButton* m_bpNext;
   wxBitmapButton* m_bpNow;
@@ -208,6 +215,19 @@ protected:
 
 public:
   wxBitmapButton* m_bpAltitude;
+  /**
+   * Timeline slider control for selecting forecast valid times.
+   *
+   * This slider allows users to move through the available forecast times
+   * either:
+   * - Discretely: Jumping between actual forecast times from the GRIB data
+   * - Continuously: Using interpolation between forecast times when enabled
+   *
+   * The slider range depends on the interpolation mode:
+   * - In non-interpolated mode: [0 to number_of_forecasts - 1]
+   * - In interpolated mode: [0 to total_minutes / time_slice]
+   *   where time_slice controls the granularity of interpolation
+   */
   wxSlider* m_sTimeline;
 
   GRIBUICtrlBarBase(wxWindow* parent, wxWindowID id = CONTROL_BAR,

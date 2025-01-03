@@ -53,9 +53,30 @@ private:
   zuint periodSeconds(zuchar unit, zuint P1, zuint P2, zuchar range);
   void readDataSet(ZUFILE* file);
   class GRIBMessage* grib_msg;
-
-  //-----------------------------------------
-  void translateDataType();  // adapte les codes des différents centres météo
+  /**
+   * Maps raw GRIB parameters to standardized OpenCPN data types and handles
+   * model-specific adjustments.
+   *
+   * 1. Identify the source model/center based on GRIB header values and set
+   *    dataCenterModel accordingly
+   *
+   * 2. Adjust data types and level values based on model-specific requirements:
+   *    - Map parameter codes to GRB_* data types
+   *    - Convert units if needed (e.g., mm/s to mm/h for precipitation)
+   *    - Standardize level types and values
+   *    - Handle model-specific parameter encodings
+   *
+   * The function modifies these member variables:
+   * - dataCenterModel: Set to identified model from DataCenterModel enum
+   * - knownData: Set false if data type/model cannot be identified
+   * - dataType: Mapped to standardized GRB_* parameter code
+   * - levelType: Standardized vertical level type
+   * - levelValue: Adjusted level value (e.g., Pa to hPa conversion)
+   *
+   * @note This function is called during record construction after the raw GRIB
+   *       data has been read but before the record is used.
+   */
+  void translateDataType();
 
   //---------------------------------------------
   // SECTION 0: THE INDICATOR SECTION (IS)

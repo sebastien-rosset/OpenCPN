@@ -387,8 +387,15 @@ void GRIBOverlayFactory::SetMessageFont() {
 
 void GRIBOverlayFactory::SetGribTimelineRecordSet(
     GribTimelineRecordSet *pGribTimelineRecordSet) {
+  wxLogMessage("GRIBOverlayFactory::SetGribTimelineRecordSet: %p",
+               pGribTimelineRecordSet);
   Reset();
   m_pGribTimelineRecordSet = pGribTimelineRecordSet;
+}
+
+void GRIBOverlayFactory::SetGribLayerSet(GRIBLayerSet *layerSet) {
+  m_pGribLayerSet = layerSet;
+  ClearCachedData();
 }
 
 void GRIBOverlayFactory::ClearCachedData(void) {
@@ -532,7 +539,7 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
     return false;
   }
 
-  // setup numbers texture if needed
+  // Setup numbers texture if needed
   if (!m_pdc) {
     m_TexFontNumbers.Build(*m_Font_Message);
 
@@ -541,55 +548,60 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
 
   m_Message_Hiden.Empty();
 
-  //    If the scale has changed, clear out the cached bitmaps in DC mode
+  // If the scale has changed, clear out the cached bitmaps in DC mode
   if (m_pdc && vp->view_scale_ppm != m_last_vp_scale) ClearCachedData();
 
   m_last_vp_scale = vp->view_scale_ppm;
 
-  //     render each type of record
-  GribRecord **pGR = m_pGribTimelineRecordSet->m_GribRecordPtrArray;
+  // Render each type of record
   wxArrayPtrVoid **pIA = m_pGribTimelineRecordSet->m_IsobarArray;
 
   for (int overlay = 1; overlay >= 0; overlay--) {
     for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++) {
       if (i == GribOverlaySettings::WIND) {
         if (overlay) { /* render overlays first */
-          if (m_dlg.m_bDataPlot[i]) RenderGribOverlayMap(i, pGR, vp);
+          // @todo remove pGR argument and use m_LayerSet
+          //if (m_dlg.m_bDataPlot[i]) RenderGribOverlayMap(i, pGR, vp);
         } else {
           if (m_dlg.m_bDataPlot[i]) {
-            RenderGribBarbedArrows(i, pGR, vp);
-            RenderGribIsobar(i, pGR, pIA, vp);
-            RenderGribNumbers(i, pGR, vp);
-            RenderGribParticles(i, pGR, vp);
+            RenderGribBarbedArrows(i, vp);      // Wind barbs.
+            // @todo remove pGR argument and use m_LayerSet
+            //RenderGribIsobar(i, pGR, pIA, vp);  // Wind isobars.
+            //RenderGribNumbers(i, pGR, vp);
+            RenderGribParticles(i, vp);  // Wind particles.
           } else {
             if (m_Settings.Settings[i].m_iBarbedVisibility)
-              RenderGribBarbedArrows(i, pGR, vp);
+              RenderGribBarbedArrows(i, vp);
           }
         }
-        continue;
-      }
-      if (i == GribOverlaySettings::PRESSURE) {
+      } else if (i == GribOverlaySettings::PRESSURE) {
         if (!overlay) { /*no overalay for pressure*/
           if (m_dlg.m_bDataPlot[i]) {
-            RenderGribIsobar(i, pGR, pIA, vp);
-            RenderGribNumbers(i, pGR, vp);
+            // @todo remove pGR argument and use m_LayerSet
+            //RenderGribIsobar(i, pGR, pIA, vp);  // Pressure isobars.
+            //RenderGribNumbers(i, pGR, vp);
           } else {
-            if (m_Settings.Settings[i].m_iIsoBarVisibility)
-              RenderGribIsobar(i, pGR, pIA, vp);
+            if (m_Settings.Settings[i].m_iIsoBarVisibility) {
+              // @todo remove pGR argument and use m_LayerSet
+              //RenderGribIsobar(i, pGR, pIA, vp);
+            }
           }
         }
         continue;
-      }
-      if (m_dlg.InDataPlot(i) && !m_dlg.m_bDataPlot[i]) continue;
+      } else {  // All other parameters
+        if (m_dlg.InDataPlot(i) && !m_dlg.m_bDataPlot[i]) continue;
 
-      if (overlay) /* render overlays first */
-        RenderGribOverlayMap(i, pGR, vp);
-      else {
-        RenderGribBarbedArrows(i, pGR, vp);
-        RenderGribIsobar(i, pGR, pIA, vp);
-        RenderGribDirectionArrows(i, pGR, vp);
-        RenderGribNumbers(i, pGR, vp);
-        RenderGribParticles(i, pGR, vp);
+        if (overlay) { /* render overlays first */
+          // @todo remove pGR argument and use m_LayerSet
+          //RenderGribOverlayMap(i, pGR, vp);
+        } else {
+          RenderGribBarbedArrows(i, vp);
+          // @todo remove pGR argument and use m_LayerSet
+          //RenderGribIsobar(i, pGR, pIA, vp);
+          //RenderGribDirectionArrows(i, pGR, vp);
+          //RenderGribNumbers(i, pGR, vp);
+          RenderGribParticles(i, vp);
+        }
       }
     }
   }
@@ -1263,21 +1275,16 @@ wxImage &GRIBOverlayFactory::getLabel(double value, int settings,
 
 double square(double x) { return x * x; }
 
-void GRIBOverlayFactory::RenderGribBarbedArrows(int settings, GribRecord **pGR,
+// RenderGribBarbedArrows is always called for settings =
+// GribOverlaySettings::WIND
+void GRIBOverlayFactory::RenderGribBarbedArrows(int settings,
                                                 PlugIn_ViewPort *vp) {
   if (!m_Settings.Settings[settings].m_bBarbedArrows) return;
 
-  //  Need two records to draw the barbed arrows
-  GribRecord *pGRX, *pGRY;
   int idx, idy;
   bool polar;
   SettingsIdToGribId(settings, idx, idy, polar);
   if (idx < 0 || idy < 0) return;
-
-  pGRX = pGR[idx];
-  pGRY = pGR[idy];
-
-  if (!pGRX || !pGRY) return;
 
   wxColour colour;
   GetGlobalColor(_T ( "YELO2" ), &colour);
@@ -1313,70 +1320,75 @@ void GRIBOverlayFactory::RenderGribBarbedArrows(int settings, GribRecord **pGR,
         double lat, lon;
         GetCanvasLLPix(vp, wxPoint(i, j), &lat, &lon);
 
-        double vkn, ang;
-        if (GribRecord::getInterpolatedValues(vkn, ang, pGRX, pGRY, lon, lat))
-          drawWindArrowWithBarbs(settings, i, j, vkn * 3.6 / 1.852,
-                                 (ang - 90) * M_PI / 180, (lat < 0.), colour,
-                                 vp->rotation);
+        // Get interpolated wind speed and direction using a merge strategy
+        // across all enabled layers.
+        double magnitude, angle;
+        if (m_pGribLayerSet->GetInterpolatedVector(magnitude, angle, idx, idy,
+                                                   lon, lat)) {
+          // Input ang from getInterpolatedValues() is documented to be in
+          // "meteorological degrees" where: 0° = Wind coming from North 90° =
+          // Wind coming from East
+
+          // drawWindArrowWithBarbs expects angles in radians where:
+          // 0 radians = Wind coming from East (after -90° rotation)
+          // π/2 = Wind from North
+          drawWindArrowWithBarbs(
+              settings, i, j, magnitude * 3.6 / 1.852,  // Convert m/s to knots
+              (angle - 90) * M_PI / 180, (lat < 0.), colour, vp->rotation);
+        }
       }
     }
   } else {
-    // set minimum spacing between arrows
+    // Set minimum spacing between arrows in screen pixels
     double minspace = wxMax(m_Settings.Settings[settings].m_iBarbArrSpacing,
                             windArrowSize * 1.2);
     double minspace2 = square(minspace);
 
-    //    Get the the grid
-    int imax = pGRX->getNi();  // Longitude
-    int jmax = pGRX->getNj();  // Latitude
+    // Calculate grid bounds based on viewport
+    double latMin = vp->lat_min;
+    double latMax = vp->lat_max;
+    double lonMin = vp->lon_min;
+    double lonMax = vp->lon_max;
 
-    wxPoint firstpx(-1000, -1000);
+    // Sample more frequently than minimum spacing to ensure we don't miss areas
+    // that would be valid after the screen-space distance check
+    double pixelToLatLon = (latMax - latMin) / vp->pix_height;
+    double sampleSpacing =
+        minspace * pixelToLatLon * 0.75;  // 75% of min spacing
+
     wxPoint oldpx(-1000, -1000);
     wxPoint oldpy(-1000, -1000);
 
-    for (int i = 0; i < imax; i++) {
-      double lonl, latl;
+    for (double lon = lonMin; lon <= lonMax; lon += sampleSpacing) {
+      double lonWrapped = lon;
+      if (lonWrapped > 180) lonWrapped -= 360;
 
-      /* at midpoint of grib so as to avoid problems in projection on
-         gribs that go all the way to the north or south pole */
-      pGRX->getXY(i, pGRX->getNj() / 2, &lonl, &latl);
-      wxPoint pl;
-      GetCanvasPixLL(vp, &pl, latl, lonl);
+      for (double lat = latMin; lat <= latMax; lat += sampleSpacing) {
+        if (!PointInLLBox(vp, lonWrapped, lat)) continue;
 
-      if (pl.x <= firstpx.x &&
-          square(pl.x - firstpx.x) + square(pl.y - firstpx.y) <
-              minspace2 / 1.44)
-        continue;
-
-      if (square(pl.x - oldpx.x) + square(pl.y - oldpx.y) < minspace2) continue;
-
-      oldpx = pl;
-      if (i == 0) firstpx = pl;
-
-      double lon = lonl;
-      for (int j = 0; j < jmax; j++) {
-        double lat = pGRX->getY(j);
-
-        if (!PointInLLBox(vp, lon, lat)) continue;
-
+        // Convert to screen coordinates for spacing check
         wxPoint p;
-        GetCanvasPixLL(vp, &p, lat, lon);
+        GetCanvasPixLL(vp, &p, lat, lonWrapped);
 
-        if (square(p.x - oldpy.x) + square(p.y - oldpy.y) < minspace2) continue;
-
+        // Skip if too close to previous arrow
+        if (square(p.x - oldpy.x) + square(p.y - oldpy.y) < minspace2) {
+          continue;
+        }
         oldpy = p;
 
-        if (lon > 180) lon -= 360;
+        if (square(p.x - oldpx.x) + square(p.y - oldpx.y) < minspace2) {
+          continue;
+        }
+        oldpx = p;
 
-        double vx = pGRX->getValue(i, j);
-        double vy = pGRY->getValue(i, j);
-
-        if (vx != GRIB_NOTDEF && vy != GRIB_NOTDEF) {
-          double vkn, ang;
-          vkn = sqrt(vx * vx + vy * vy);
-          ang = atan2(vy, -vx);
-          drawWindArrowWithBarbs(settings, p.x, p.y, vkn * 3.6 / 1.852, ang,
-                                 (lat < 0.), colour, vp->rotation);
+        // Get interpolated wind data from best layer through merge strategy
+        double magnitude, angle;
+        if (m_pGribLayerSet->GetInterpolatedVector(magnitude, angle, idx, idy,
+                                                   lonWrapped, lat)) {
+          drawWindArrowWithBarbs(
+              settings, p.x, p.y,
+              magnitude * 3.6 / 1.852,  // Convert m/s to knots
+              (angle - 90) * M_PI / 180, (lat < 0.), colour, vp->rotation);
         }
       }
     }
@@ -2018,21 +2030,15 @@ void GRIBOverlayFactory::DrawNumbers(wxPoint p, double value, int settings,
   }
 }
 
-void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
+void GRIBOverlayFactory::RenderGribParticles(int settings,
                                              PlugIn_ViewPort *vp) {
   if (!m_Settings.Settings[settings].m_bParticles) return;
 
   //   need two records or a polar record to draw arrows
-  GribRecord *pGRX, *pGRY;
   int idx, idy;
   bool polar;
   SettingsIdToGribId(settings, idx, idy, polar);
   if (idx < 0 || idy < 0) return;
-
-  pGRX = pGR[idx];
-  pGRY = pGR[idy];
-
-  if (!pGRX || !pGRY) return;
 
   wxStopWatch sw;
   sw.Start();
@@ -2141,8 +2147,8 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
       double vkn = 0, ang;
 
       if (it.m_Duration < max_duration - history_size &&
-          GribRecord::getInterpolatedValues(vkn, ang, pGRX, pGRY, pp[0],
-                                            pp[1]) &&
+          m_pGribLayerSet->GetInterpolatedVector(vkn, ang, idx, idy, pp[0],
+                                                 pp[1]) &&
           vkn > 0 && vkn < 100) {
         vkn = m_Settings.CalibrateValue(settings, vkn);
         double d;
@@ -2193,7 +2199,8 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
   }
   m_bUpdateParticles = false;
 
-  int total_particles = density * pGRX->getNi() * pGRX->getNj();
+  double totalArea = m_pGribLayerSet->GetCoverageArea(idx);
+  int total_particles = density * totalArea;
 
   // set max cap to avoid locking the program up
   if (total_particles > 60000) total_particles = 60000;
@@ -2209,26 +2216,15 @@ void GRIBOverlayFactory::RenderGribParticles(int settings, GribRecord **pGR,
   for (int npi = 0; npi < new_particles; npi++) {
     float p[2];
     double vkn, ang;
-    for (int i = 0; i < 20; i++) {
-      // random position in the grib area
-      p[0] =
-          (float)rand() / RAND_MAX * (pGRX->getLonMax() - pGRX->getLonMin()) +
-          pGRX->getLonMin();
-      p[1] =
-          (float)rand() / RAND_MAX * (pGRX->getLatMax() - pGRX->getLatMin()) +
-          pGRX->getLatMin();
-
-      if (GribRecord::getInterpolatedValues(vkn, ang, pGRX, pGRY, p[0], p[1]) &&
-          vkn > 0 && vkn < 100)
-        vkn = m_Settings.CalibrateValue(settings, vkn);
-      else
-        continue;  // try again
-
-      /* try hard to find a random position where current is faster than 1 knot
-       */
-      if (settings != GribOverlaySettings::CURRENT || vkn > 1 - (double)i / 20)
-        break;
+    if (!m_pGribLayerSet->GetRandomValidCoordinate(idx, idy, p[0], p[1])) {
+      // Skip this particle if we couldn't find valid coordinates.
+      continue;
     }
+
+    // GetRandomValidCoordinate already ensures the point has valid data
+    // and meets our magnitude criteria, so we can get the values directly
+    m_pGribLayerSet->GetInterpolatedVector(vkn, ang, idx, idx + 5, p[0], p[1]);
+    vkn = m_Settings.CalibrateValue(settings, vkn);
 
     Particle np;
     np.m_Duration = rand() % (max_duration / 2);

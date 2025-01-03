@@ -37,6 +37,79 @@ set(PACKAGE_NAME grib_pi)
 set(PLUGIN_SOURCE_DIR .)
 message(STATUS "*** Staging to build ${PACKAGE_NAME} ***")
 
+# Define source files before tests so they're available to the test build
+
+# For convenience we define the sources as a variable. You can add header files
+# and cpp/c files and CMake will sort them out
+
+set(SRC_GRIB
+    src/grib_pi.h
+    src/grib_pi.cpp
+    src/grib_file.h
+    src/grib_file.cpp
+    src/grib_layer.h
+    src/grib_layer.cpp
+    src/grib_layer_set.h
+    src/grib_layer_set.cpp
+    src/grib_layer_merge_strategy.h
+    src/grib_layer_merge_strategy.cpp
+    src/grib_timeline_record_set.h
+    src/grib_timeline_record_set.cpp
+    src/GribOverlayFactory.cpp
+    src/GribOverlayFactory.h
+    src/GribUIDialogBase.cpp
+    src/GribUIDialogBase.h
+    src/GrabberWin.cpp
+    src/GrabberWin.h
+    src/GribUIDialog.cpp
+    src/GribUIDialog.h
+    src/CursorData.cpp
+    src/CursorData.h
+    src/GribSettingsDialog.cpp
+    src/GribSettingsDialog.h
+    src/GribRequestDialog.cpp
+    src/GribRequestDialog.h
+    src/XyGribPanel.h
+    src/XyGribPanel.cpp
+    src/XyGribModelDef.h
+    src/XyGribModelDef.cpp
+    src/icons.h
+    src/msg.h
+    src/email.h
+    src/email.cpp
+    src/GribTable.h
+    src/GribTable.cpp
+    src/CustomGrid.h
+    src/CustomGrid.cpp
+    src/icons.cpp
+    src/GribReader.cpp
+    src/GribRecord.h
+    src/GribRecord.cpp
+    src/GribRecordSet.h
+    src/GribRecordSet.cpp
+    src/GribV1Record.h
+    src/GribV1Record.cpp
+    src/GribV2Record.h
+    src/GribV2Record.cpp
+    src/zuFile.cpp
+    src/IsoLine.cpp
+    src/pi_ocpndc.cpp
+    src/pi_ocpndc.h
+)
+
+# Enable testing
+enable_testing()
+
+# Add tests subdirectory
+add_subdirectory(tests)
+
+# Add plugin-specific test target
+add_custom_target(grib-pi-tests
+    COMMAND ctest --output-on-failure
+    COMMENT "Running GRIB plugin tests"
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
 # SET(CMAKE_BUILD_TYPE Debug) SET(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_MACOSX_RPATH "ON")
 
@@ -82,49 +155,6 @@ else (QT_ANDROID)
 endif (QT_ANDROID)
 
 find_package(Gettext REQUIRED)
-
-# For convenience we define the sources as a variable. You can add header files
-# and cpp/c files and CMake will sort them out
-
-set(SRC_GRIB
-    src/grib_pi.h
-    src/grib_pi.cpp
-    src/GribOverlayFactory.cpp
-    src/GribOverlayFactory.h
-    src/GribUIDialogBase.cpp
-    src/GribUIDialogBase.h
-    src/GrabberWin.cpp
-    src/GrabberWin.h
-    src/GribUIDialog.cpp
-    src/GribUIDialog.h
-    src/CursorData.cpp
-    src/CursorData.h
-    src/GribSettingsDialog.cpp
-    src/GribSettingsDialog.h
-    src/GribRequestDialog.cpp
-    src/GribRequestDialog.h
-    src/XyGribPanel.h
-    src/XyGribPanel.cpp
-    src/XyGribModelDef.h
-    src/XyGribModelDef.cpp
-    src/icons.h
-    src/msg.h
-    src/email.h
-    src/email.cpp
-    src/GribTable.h
-    src/GribTable.cpp
-    src/CustomGrid.h
-    src/CustomGrid.cpp
-    src/icons.cpp
-    src/GribReader.cpp
-    src/GribRecord.cpp
-    src/GribV1Record.cpp
-    src/GribV2Record.cpp
-    src/zuFile.cpp
-    src/IsoLine.cpp
-    src/pi_ocpndc.cpp
-    src/pi_ocpndc.h
-)
 
 if (OCPN_USE_GL)
 set(SRC_GRIB ${SRC_GRIB}

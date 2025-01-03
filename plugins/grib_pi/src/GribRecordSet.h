@@ -24,6 +24,9 @@
  * the same reference time. A record set combines multiple meteorological
  * (wind, pressure, waves, etc.) valid at a single forecast time.
  */
+#ifndef GRIB_RECORD_SET_H
+#define GRIB_RECORD_SET_H
+
 #include "GribRecord.h"
 
 // These are indexes into the array
@@ -117,7 +120,7 @@ public:
    * @param i Index in the record array where to store the record
    * @param pGR Pointer to the GRIB record to store
    */
-  void SetUnRefGribRecord(int i, GribRecord *pGR) {
+  void SetUnRefGribRecord(int i, GribRecord* pGR) {
     assert(i >= 0 && i < Idx_COUNT);
     if (m_GribRecordUnref[i] == true) {
       delete m_GribRecordPtrArray[i];
@@ -139,8 +142,48 @@ public:
     }
   }
 
-  /** Reference time for this set of records. */
+  /**
+   * Gets a GRIB record for a specific parameter index.
+   *
+   * This method provides controlled access to the GribRecord array, replacing
+   * direct array access.
+   *
+   * @param idx Parameter index (see Idx_* enum).
+   * @return Pointer to GribRecord if available and valid, nullptr otherwise.
+   */
+  GribRecord* GetRecord(int idx);
+  void SetRecord(int idx, GribRecord* pGR);
+
+  /**
+   * Gets a read-only GRIB record for a specific parameter index.
+   *
+   * @param idx Parameter index (see Idx_* enum).
+   * @return Pointer to GribRecord if available and valid, nullptr otherwise.
+   */
+  virtual const GribRecord* GetRecord(int idx) const;
+
+  time_t GetReferenceTime() const { return m_Reference_Time; }
+
+  void SetReferenceTime(time_t refTime) { m_Reference_Time = refTime; }
+
+private:
+  /**
+   * Reference time for all records in this set.
+   *
+   * This timestamp represents when the forecast data in this record set is
+   * valid, which is: reference_time (model initialization time) +
+   * forecast_period.
+   * For example, if a model was initialized at 2024-02-11 00:00Z and this is
+   * the +6h forecast, this field would contain 2024-02-11 06:00Z.
+   *
+   * All GRIB records in this set (winds, pressure, temperature, etc.) share
+   * this same valid time.
+   *
+   * @note Despite the name, this is not the GRIB reference time (model
+   * initialization time)
+   */
   time_t m_Reference_Time;
+
   /** Unique identifier for this record set. */
   unsigned int m_ID;
 
@@ -152,10 +195,39 @@ public:
    * Records may be owned by this set (tracked by m_GribRecordUnref) or
    * referenced from elsewhere.
    */
-  GribRecord *m_GribRecordPtrArray[Idx_COUNT];
+  GribRecord* m_GribRecordPtrArray[Idx_COUNT];
 
-private:
   // grib records files are stored and owned by reader mapGribRecords
   // interpolated grib are not, keep track of them
   bool m_GribRecordUnref[Idx_COUNT];
 };
+
+/**
+ * Dynamic Array of GRIB Record Sets.
+ *
+ * A wxWidgets-based array managing multiple GribRecordSet objects, where each
+ * set contains meteorological parameters valid at a specific forecast time.
+ * This array typically holds the complete time sequence of weather data for a
+ * GRIB file.
+ *
+ * Technical Details:
+ * - Implemented using WX_DECLARE_OBJARRAY which creates a dynamic array of
+ * objects
+ * - Each element is a GribRecordSet containing up to Idx_COUNT different
+ * parameters
+ * - Array elements are typically ordered by forecast time
+ * - The array owns its GribRecordSet objects and manages their lifecycle
+ *
+ * Example Structure:
+ * [0] -> GribRecordSet for T+0h (analysis)
+ *   - Surface wind (U,V components)
+ *   - Upper air winds (850hPa, 700hPa, etc.)
+ *   - Temperature, pressure, waves
+ * [1] -> GribRecordSet for T+3h
+ * [2] -> GribRecordSet for T+6h
+ * ...
+ *
+ */
+WX_DECLARE_OBJARRAY(GribRecordSet, ArrayOfGribRecordSets);
+
+#endif  // GRIB_RECORD_SET_H

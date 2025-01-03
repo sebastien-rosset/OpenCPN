@@ -1453,6 +1453,8 @@ void GribV2Record::translateDataType() {
   else if ((idCenter == 7 && idModel == 44 && idGrid == 173) ||
            (idCenter == 7 && idModel == 44 && idGrid == 235)) {
     dataCenterModel = NOAA_NCEP_SST;
+  } else if ((idCenter == 7 && idModel == 83)) {
+    dataCenterModel = NOAA_HRRR;
   }
   //----------------------------------------------
   // FNMOC WW3 mediterranean sea
