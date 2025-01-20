@@ -173,6 +173,7 @@ GRIBUICtrlBar::GRIBUICtrlBar(wxWindow *parent, wxWindowID id,
   m_gCursorData = nullptr;
   m_gGRIBUICData = nullptr;
   m_gtk_started = false;
+  m_pLayerManager = new GribLayerManager();
 
   wxFileConfig *pConf = GetOCPNConfigObject();
 
@@ -347,6 +348,8 @@ GRIBUICtrlBar::~GRIBUICtrlBar() {
   }
   delete m_vp;
   delete m_pTimelineSet;
+  delete m_pLayerManager;
+  if (m_bGRIBActiveFile) delete m_bGRIBActiveFile;
 }
 
 wxBitmap GRIBUICtrlBar::GetScaledBitmap(wxBitmap bitmap,
@@ -471,10 +474,11 @@ void GRIBUICtrlBar::OpenFile(bool newestFile) {
 
   m_bGRIBActiveFile = new GRIBFile(m_file_names, pPlugIn->GetCopyFirstCumRec(),
                                    pPlugIn->GetCopyMissWaveRec(), newestFile);
+  GetGribLayerManager()->AssignLayer(0, m_bGRIBActiveFile);
 
   ArrayOfGribRecordSets *rsa = m_bGRIBActiveFile->GetRecordSetArrayPtr();
   wxString title;
-  if (m_bGRIBActiveFile->IsOK()) {
+  if (GetGribLayerManager()->IsOK()) {
     wxFileName fn(m_bGRIBActiveFile->GetFileNames()[0]);
     title = (_("File: "));
     title.Append(fn.GetFullName());
@@ -1353,7 +1357,7 @@ void GRIBUICtrlBar::StopPlayBack() {
 }
 
 void GRIBUICtrlBar::TimelineChanged() {
-  if (!m_bGRIBActiveFile || (m_bGRIBActiveFile && !m_bGRIBActiveFile->IsOK())) {
+  if (!m_bGRIBActiveFile || !GetGribLayerManager()->IsOK()) {
     pPlugIn->GetGRIBOverlayFactory()->SetGribTimelineRecordSet(nullptr);
     return;
   }
@@ -1916,7 +1920,7 @@ void GRIBUICtrlBar::OnNext(wxCommandEvent &event) {
 }
 
 void GRIBUICtrlBar::ComputeBestForecastForNow() {
-  if (!m_bGRIBActiveFile || (m_bGRIBActiveFile && !m_bGRIBActiveFile->IsOK())) {
+  if (!m_bGRIBActiveFile || (m_bGRIBActiveFile && !GetGribLayerManager()->IsOK())) {
     pPlugIn->GetGRIBOverlayFactory()->SetGribTimelineRecordSet(nullptr);
     return;
   }
@@ -1979,7 +1983,7 @@ void GRIBUICtrlBar::SetTimeLineMax(bool SetValue) {
         m_OverlaySettings.GetMinFromIndex(m_OverlaySettings.m_SlicesPerUpdate);
     m_sTimeline->SetMax(m_TimeLineHours * 60 / stepmin);
   } else {
-    if (m_bGRIBActiveFile && m_bGRIBActiveFile->IsOK()) {
+    if (GetGribLayerManager()->IsOK()) {
       ArrayOfGribRecordSets *rsa = m_bGRIBActiveFile->GetRecordSetArrayPtr();
       m_sTimeline->SetMax(rsa->GetCount() - 1);
     }

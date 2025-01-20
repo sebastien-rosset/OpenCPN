@@ -47,6 +47,7 @@
 #include <wx/fileconf.h>
 #include <wx/glcanvas.h>
 
+#include "grib_layer_manager.h"
 #include "GribUIDialogBase.h"
 #include "CursorData.h"
 #include "GribSettingsDialog.h"
@@ -70,6 +71,7 @@ class GribRecordSet;
 class GribRequestSetting;
 class GribGrabberWin;
 class GribSpacerWin;
+class GribLayerManager;
 
 class wxFileConfig;
 class grib_pi;
@@ -235,7 +237,9 @@ public:
   /** Plugin instance that owns this control bar. */
   grib_pi *pPlugIn;
   GribRequestSetting *pReq_Dialog;
-  /** Currently active GRIB file being displayed. */
+  /** Layer manager to support multiple GRIB files. */
+  GribLayerManager *m_pLayerManager;
+  /** Legacy access to a single GRIB layer. */
   GRIBFile *m_bGRIBActiveFile;
   bool m_bDataPlot[GribOverlaySettings::GEO_ALTITUDE];  // only for no altitude
                                                         // parameters
@@ -325,6 +329,7 @@ private:
     m_Selection_index = m_cRecordForecast->GetSelection();
     m_Selection_label = m_cRecordForecast->GetString(m_Selection_index);
   }
+  GribLayerManager* GetGribLayerManager() { return m_pLayerManager; }
 
   //    Data
   CursorData *m_gCursorData;
