@@ -399,13 +399,19 @@ static bool unpackGDS(GRIBMessage *grib_msg) {
 
   src = b[5]; /* source of grid definition */
   if (src != 0) {
-    fprintf(stderr, "Don't recognize predetermined grid definitions");
+    wxLogMessage(
+        "GRIB2 Error: Don't recognize predetermined grid definitions with "
+        "source value %d",
+        src);
     return false;
   }
 
   num_in_list = b[10]; /* quasi-regular grid indication */
   if (num_in_list > 0) {
-    fprintf(stderr, "Unable to unpack quasi-regular grids");
+    wxLogMessage(
+        "GRIB2 Error: Unable to unpack quasi-regular grids with %d grid points "
+        "list",
+        num_in_list);
     return false;
   }
 
@@ -502,8 +508,9 @@ static bool unpackGDS(GRIBMessage *grib_msg) {
           1000000.; /* longitude of southern pole of projection */
       break;
     default:
-      fprintf(stderr, "Grid template %d is not understood\n",
-              grib_msg->md.gds_templ_num);
+      wxLogMessage(
+          "GRIB2 Grid Definition Section Error: Template %d is not supported",
+          grib_msg->md.gds_templ_num);
       return false;
   }
   return true;
@@ -551,7 +558,7 @@ static bool unpackPDS(GRIBMessage *grib_msg) {
 
   num_coords = uint2(b + 5); /* indication of hybrid coordinate system */
   if (num_coords > 0) {
-    fprintf(stderr, "Unable to decode hybrid coordinates");
+    wxLogMessage("Unable to decode hybrid coordinates");
     return false;
   }
 
@@ -619,8 +626,10 @@ static bool unpackPDS(GRIBMessage *grib_msg) {
       }
       break;
     default:
-      fprintf(stderr, "Product Definition Template %d is not understood\n",
-              grib_msg->md.pds_templ_num);
+      wxLogMessage(
+          "GRIB2 Product Definition Section Error: Template %d is not "
+          "supported",
+          grib_msg->md.pds_templ_num);
       return false;
   }
   return true;
@@ -667,10 +676,10 @@ static bool unpackDRS(GRIBMessage *grib_msg) {
           grib_msg->md.complex_pack.primary_miss_sub = uint4(b + 23);
           grib_msg->md.complex_pack.secondary_miss_sub = uint4(b + 27);
         } else {
-          fprintf(stderr,
-                  "Unable to decode missing value substitutes for original "
-                  "value type %d\n",
-                  grib_msg->md.orig_val_type);
+          wxLogMessage(
+              "Unable to decode missing value substitutes for original "
+              "value type %d",
+              grib_msg->md.orig_val_type);
           return false;
         }
         grib_msg->md.complex_pack.num_groups = uint4(b + 31);
@@ -692,8 +701,10 @@ static bool unpackDRS(GRIBMessage *grib_msg) {
       }
       break;
     default:
-      fprintf(stderr, "Data template %d is not understood\n",
-              grib_msg->md.drs_templ_num);
+      wxLogMessage(
+          "GRIB2 Data Representation Section Error: Template %d is not "
+          "supported",
+          grib_msg->md.drs_templ_num);
       return false;
   }
   return true;
@@ -735,9 +746,9 @@ static bool unpackBMS(GRIBMessage *grib_msg) {
       grib_msg->md.bmssize = 0;
       break;
     default:
-      fprintf(stderr,
-              "This code is not currently set up to deal with predefined "
-              "bit-maps\n");
+      wxLogMessage(
+          "This code is not currently set up to deal with predefined "
+          "bit-maps");
       return false;
   }
   return true;
@@ -970,9 +981,8 @@ static bool unpackDS(GRIBMessage *grib_msg) {
             grib_msg->grids.gridpoints[l] = GRIB_MISSING_VALUE;
         }
       } else {
-        fprintf(stderr,
-                "g2_unpack7: Invalid precision=%d for Data Section 5.4.\n",
-                grib_msg->md.precision);
+        wxLogMessage("g2_unpack7: Invalid precision=%d for Data Section 5.4.",
+                     grib_msg->md.precision);
         return false;
       }
     } break;
@@ -1220,8 +1230,8 @@ static int mapStatisticalEndTime(GRIBMessage *grid) {
       case 4:
         return (grid->md.stat_proc.eyr - grid->yr);
       default:
-        fprintf(stderr, "Unable to map end time with units %d to GRIB1\n",
-                grid->md.time_unit);
+        wxLogMessage("Unable to map end time with units %d to GRIB1",
+                     grid->md.time_unit);
         return UINT_MAX;
     }
 
@@ -1236,9 +1246,9 @@ static int mapStatisticalEndTime(GRIBMessage *grid) {
     return grid->md.fcst_time + grid->md.stat_proc.t[0].time_length / 60;
   }
 
-  fprintf(stderr, "Unable to map end time %d %d %d %d \n", grid->md.time_unit,
-          grid->md.stat_proc.t[0].time_unit, grid->md.fcst_time,
-          grid->md.stat_proc.t[0].time_length);
+  wxLogMessage("Unable to map end time %d %d %d %d", grid->md.time_unit,
+               grid->md.stat_proc.t[0].time_unit, grid->md.fcst_time,
+               grid->md.stat_proc.t[0].time_length);
   return UINT_MAX;
 }
 
@@ -1312,15 +1322,13 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
               *t_range = 140;
               break;
             default:
-              fprintf(
-                  stderr,
-                  "Unable to map NCEP statistical process code %d to GRIB1\n",
+              wxLogMessage(
+                  "Unable to map NCEP statistical process code %d to GRIB1",
                   grid->md.stat_proc.t[0].proc_code);
               return false;
           }
         } else {
-          fprintf(stderr,
-                  "Unable to map multiple statistical processes to GRIB1\n");
+          wxLogMessage("Unable to map multiple statistical processes to GRIB1");
           return false;
         }
       } else {
@@ -1347,7 +1355,7 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
             if (grid->md.stat_proc.t[0].incr_length == 0)
               *n_avg = 0;
             else {
-              fprintf(stderr, "Unable to map discrete processing to GRIB1\n");
+              wxLogMessage("Unable to map discrete processing to GRIB1");
               return false;
             }
             break;
@@ -1363,7 +1371,7 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
             if (grid->md.stat_proc.t[0].incr_length == 0)
               *n_avg = 0;
             else {
-              fprintf(stderr, "Unable to map discrete processing to GRIB1\n");
+              wxLogMessage("Unable to map discrete processing to GRIB1");
               return false;
             }
             break;
@@ -1384,8 +1392,8 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
                       if (grid->md.stat_proc.t[0].incr_length == 0)
                         *n_avg = 0;
                       else {
-                        fprintf(stderr,
-                                "Unable to map discrete processing to GRIB1\n");
+                        wxLogMessage(
+                            "Unable to map discrete processing to GRIB1");
                         return false;
                       }
                       break;
@@ -1393,8 +1401,8 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
                 }
               }
             } else {
-              fprintf(stderr, "Unable to map statistical process %d to GRIB1\n",
-                      grid->md.stat_proc.t[0].proc_code);
+              wxLogMessage("Unable to map statistical process %d to GRIB1",
+                           grid->md.stat_proc.t[0].proc_code);
               return false;
             }
         }
@@ -1402,10 +1410,10 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
       *n_missing = grid->md.stat_proc.nmiss;
       break;
     default:
-      fprintf(stderr,
-              "Unable to map time range for Product Definition Template %d "
-              "into GRIB1\n",
-              grid->md.pds_templ_num);
+      wxLogMessage(
+          "Unable to map time range for Product Definition Template %d "
+          "into GRIB1",
+          grid->md.pds_templ_num);
       return false;
   }
   return true;
@@ -1852,7 +1860,7 @@ static bool unpackIS(ZUFILE *fp, GRIBMessage *grib_msg) {
 
   if (strncmp(&((char *)grib_msg->buffer)[grib_msg->total_len - 4], "7777",
               4) != 0)
-    fprintf(stderr, "Warning: no end section found\n");
+    wxLogMessage("Warning: no end section found in GRIB2 file");
 
   grib_msg->offset = 128;
   return true;
