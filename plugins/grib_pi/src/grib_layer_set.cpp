@@ -524,19 +524,23 @@ bool GRIBLayerSet::getTimeInterpolatedValues(double& M, double& A, int idx1,
   return true;
 }
 
-/** @todo refactor and remove. */
+/**
+ * @todo refactor and remove.
+ * This function returns the first valid timeline record set for backwards
+ * compatibility. However, it does not handle the case where multiple layers
+ * have valid data for the same time point and data type.
+ */
 GribTimelineRecordSet* GRIBLayerSet::GetTimeLineRecordSet(
     const wxDateTime* time) {
   if (time == nullptr) {
     time = &m_selectedTime;
   }
-  for (auto& pair : m_layers) {
-    if (pair.second && pair.second->IsEnabled()) {
+  for (auto& [name, layer] : m_layers) {
+    if (layer && layer->IsEnabled()) {
       // Return the first valid timeline record set for backwards compatibility.
       wxLogMessage(
-          "GRIBLayerSet::GetTimeLineRecordSet: Found enabled layer: %s",
-          pair.first);
-      return pair.second->GetTimeLineRecordSet(*time);
+          "GRIBLayerSet::GetTimeLineRecordSet: Found enabled layer: %s", name);
+      return layer->GetTimeLineRecordSet(*time);
     }
   }
   wxLogMessage("GRIBLayerSet::GetTimeLineRecordSet: No enabled layers found.");

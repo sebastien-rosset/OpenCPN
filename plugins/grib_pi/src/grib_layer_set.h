@@ -463,10 +463,18 @@ private:
 
   wxString m_LastMessage;
 
-  /** GRIB layers. */
+  /**
+   * Collection of GRIB layers indexed by their unique name.
+   * Each layer is associated with a single GRIB file that may contain multiple
+   * meteorological parameters.
+   * Multiple layers can be enabled simultaneously, allowing for data
+   * visualization and interpolation across different GRIB files.
+   */
   std::map<wxString, std::unique_ptr<GRIBLayer>> m_layers;
 
-  /** Maintains layer rendering order (top to bottom). */
+  /**
+   * Ordered list of layer identifiers.
+   */
   std::vector<wxString> m_layerOrder;
 
   /**

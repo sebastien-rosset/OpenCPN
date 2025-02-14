@@ -312,7 +312,6 @@ GRIBUICtrlBar::~GRIBUICtrlBar() {
   }
   delete m_vp;
   m_vp = nullptr;
-  delete m_pTimelineSet;
   m_pTimelineSet = nullptr;
 }
 
@@ -414,7 +413,6 @@ void GRIBUICtrlBar::OpenFile(bool newestFile) {
   pPlugIn->GetGRIBOverlayFactory()->ClearParticles();
   m_Altitude = 0;
   m_FileIntervalIndex = m_OverlaySettings.m_SlicesPerUpdate;
-  delete m_pTimelineSet;
   m_pTimelineSet = nullptr;
   m_sTimeline->SetValue(0);
   m_TimeLineHours = 0;
@@ -1595,8 +1593,6 @@ void GRIBUICtrlBar::OnZoomToCenterClick(wxCommandEvent &event) {
 }
 
 void GRIBUICtrlBar::DoZoomToCenter() {
-  if (!m_pTimelineSet) return;
-
   double latmin, latmax, lonmin, lonmax;
   if (!m_LayerSet.GetZoneLimits(&latmin, &latmax, &lonmin, &lonmax)) {
     return;
@@ -1740,7 +1736,6 @@ void GRIBUICtrlBar::ComputeBestForecastForNow() {
 
 void GRIBUICtrlBar::SetGribTimelineRecordSet(
     GribTimelineRecordSet *pTimelineSet) {
-  delete m_pTimelineSet;
   m_pTimelineSet = pTimelineSet;
 
   if (!pPlugIn->GetGRIBOverlayFactory()) return;
