@@ -464,6 +464,13 @@ public:
    * structures, and update frequencies
    */
   zuint getDataCenterModel() const { return dataCenterModel; }
+
+  /**
+   * Returns the weather prediction model/center that produced this
+   * data as a human-readable string.
+   */
+  const char *getDataCenterStr() const;
+
   //-----------------------------------------
 
   /**
@@ -713,6 +720,7 @@ public:
   void setRecordCurrentDate(time_t t);
   void print();
   bool isFilled() { return m_bfilled; }
+  const char *getFileDataCenterStr() const;
   void setFilled(bool val = true) { m_bfilled = val; }
   /** Get the GRIB version. */
   unsigned char getEditionNumber() const { return editionNumber; }

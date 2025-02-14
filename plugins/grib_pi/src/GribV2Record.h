@@ -78,6 +78,9 @@ private:
    */
   void translateDataType();
 
+  bool mapTimeRange(GRIBMessage* grid, zuint* p1, zuint* p2, zuchar* t_range,
+                    int* n_avg, int* n_missing, int center) const;
+
   //---------------------------------------------
   // SECTION 0: THE INDICATOR SECTION (IS)
   //---------------------------------------------

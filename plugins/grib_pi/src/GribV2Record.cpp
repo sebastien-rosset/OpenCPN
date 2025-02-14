@@ -400,7 +400,8 @@ static bool unpackGDS(GRIBMessage *grib_msg) {
   src = b[5]; /* source of grid definition */
   if (src != 0) {
     wxLogMessage(
-        "GRIB2 Error: Don't recognize predetermined grid definitions with "
+        "GRIB2 Error in %s: Don't recognize predetermined grid definitions "
+        "with "
         "source value %d",
         src);
     return false;
@@ -1253,9 +1254,9 @@ static int mapStatisticalEndTime(GRIBMessage *grid) {
 }
 
 // map GRIB2 msg time to GRIB1 P1 and P2 in sec
-static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
-                         zuchar *t_range, int *n_avg, int *n_missing,
-                         int center) {
+bool GribV2Record::mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
+                                zuchar *t_range, int *n_avg, int *n_missing,
+                                int center) const {
   switch (grid->md.pds_templ_num) {
     case 0:
     case 1:
@@ -1355,7 +1356,11 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
             if (grid->md.stat_proc.t[0].incr_length == 0)
               *n_avg = 0;
             else {
-              wxLogMessage("Unable to map discrete processing to GRIB1");
+              wxLogMessage(
+                  "GRIB2 Time Range Error [%s model=%d-%d]: Cannot map "
+                  "discrete processing with %dh increment",
+                  getDataCenterStr(), idCenter, idModel,
+                  grid->md.stat_proc.t[0].incr_length);
               return false;
             }
             break;
@@ -1371,7 +1376,12 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
             if (grid->md.stat_proc.t[0].incr_length == 0)
               *n_avg = 0;
             else {
-              wxLogMessage("Unable to map discrete processing to GRIB1");
+              wxLogMessage(
+                  "GRIB2 Time Range Error [%s model=%d-%d]: Cannot map "
+                  "discrete processing for %s with %dh increment",
+                  getDataCenterStr(), idCenter, idModel,
+                  grid->md.stat_proc.t[0].proc_code == 2 ? "max" : "min",
+                  grid->md.stat_proc.t[0].incr_length);
               return false;
             }
             break;
@@ -1393,7 +1403,12 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
                         *n_avg = 0;
                       else {
                         wxLogMessage(
-                            "Unable to map discrete processing to GRIB1");
+                            "GRIB2 Time Range Error [%s model=%d-%d]: Cannot "
+                            "map discrete processing for param %d with %dh "
+                            "increment",
+                            getDataCenterStr(), idCenter, idModel,
+                            grid->md.param_num,
+                            grid->md.stat_proc.t[0].incr_length);
                         return false;
                       }
                       break;
@@ -1401,8 +1416,12 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
                 }
               }
             } else {
-              wxLogMessage("Unable to map statistical process %d to GRIB1",
-                           grid->md.stat_proc.t[0].proc_code);
+              wxLogMessage(
+                  "GRIB2 Process Error: Cannot map statistical processing "
+                  "(code=%d, center=%d, discipline=%d, category=%d) to GRIB1 "
+                  "format",
+                  grid->md.stat_proc.t[0].proc_code, center, grid->disc,
+                  grid->md.param_cat);
               return false;
             }
         }

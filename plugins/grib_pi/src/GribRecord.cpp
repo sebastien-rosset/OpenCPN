@@ -848,3 +848,34 @@ double GribRecord::GetIntersectionArea(const GribRecord *r2) const {
 
   return (itsLonMax - itsLonMin) * (itsLatMax - itsLatMin) * cosLat;
 }
+
+const char *GribRecord::getDataCenterStr() const {
+  switch (dataCenterModel) {
+    case NOAA_GFS:
+      return "NOAA-GFS";
+    case NOAA_NCEP_WW3:
+      return "NOAA-WW3";
+    case NOAA_NCEP_SST:
+      return "NOAA-SST";
+    case NOAA_RTOFS:
+      return "NOAA-RTOFS";
+    case NOAA_HRRR:
+      return "NOAA-HRRR";
+    case FNMOC_WW3_GLB:
+      return "FNMOC-WW3";
+    case FNMOC_WW3_MED:
+      return "FNMOC-WW3-MED";
+    case NORWAY_METNO:
+      return "MET.NO";
+    case ECMWF_ERA5:
+      return "ECMWF-ERA5";
+    case KNMI_HIRLAM:
+      return "KNMI-HIRLAM";
+    case KNMI_HARMONIE_AROME:
+      return "KNMI-HARMONIE";
+    case OTHER_DATA_CENTER:
+      return "UNKNOWN";
+    default:
+      return "UNKNOWN";
+  }
+}
