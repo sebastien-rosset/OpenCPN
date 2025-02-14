@@ -219,7 +219,7 @@ GRIBOverlayFactory::GRIBOverlayFactory(GRIBUICtrlBar &dlg)
 
   // qDebug() <<  "m_pixelMM: " << m_pixelMM;
 
-  m_pGribTimelineRecordSet = nullptr;
+  m_pGribLayerSet = nullptr;
   m_last_vp_scale = 0.;
 
   m_oDC = nullptr;
@@ -366,11 +366,7 @@ GRIBOverlayFactory::~GRIBOverlayFactory() {
   if (m_Font_Message) delete m_Font_Message;
 }
 
-void GRIBOverlayFactory::Reset() {
-  m_pGribTimelineRecordSet = nullptr;
-
-  ClearCachedData();
-}
+void GRIBOverlayFactory::Reset() { ClearCachedData(); }
 
 void GRIBOverlayFactory::SetMessageFont() {
   wxFont fo;
@@ -383,14 +379,6 @@ void GRIBOverlayFactory::SetMessageFont() {
 #endif
   if (m_Font_Message) delete m_Font_Message;
   m_Font_Message = new wxFont(fo);
-}
-
-void GRIBOverlayFactory::SetGribTimelineRecordSet(
-    GribTimelineRecordSet *pGribTimelineRecordSet) {
-  wxLogMessage("GRIBOverlayFactory::SetGribTimelineRecordSet: %p",
-               pGribTimelineRecordSet);
-  Reset();
-  m_pGribTimelineRecordSet = pGribTimelineRecordSet;
 }
 
 void GRIBOverlayFactory::SetGribLayerSet(GRIBLayerSet *layerSet) {
@@ -533,7 +521,7 @@ void GRIBOverlayFactory::SettingsIdToGribId(int i, int &idx, int &idy,
 }
 
 bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
-  if (!m_pGribTimelineRecordSet) {
+  if (!m_pGribLayerSet) {
     DrawMessageWindow((m_Message), vp->pix_width, vp->pix_height,
                       m_Font_Message);
     return false;
@@ -554,20 +542,21 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
   m_last_vp_scale = vp->view_scale_ppm;
 
   // Render each type of record
-  wxArrayPtrVoid **pIA = m_pGribTimelineRecordSet->m_IsobarArray;
+  // @todo
+  // wxArrayPtrVoid **pIA = m_pGribTimelineRecordSet->m_IsobarArray;
 
   for (int overlay = 1; overlay >= 0; overlay--) {
     for (int i = 0; i < GribOverlaySettings::SETTINGS_COUNT; i++) {
       if (i == GribOverlaySettings::WIND) {
         if (overlay) { /* render overlays first */
           // @todo remove pGR argument and use m_LayerSet
-          //if (m_dlg.m_bDataPlot[i]) RenderGribOverlayMap(i, pGR, vp);
+          // if (m_dlg.m_bDataPlot[i]) RenderGribOverlayMap(i, pGR, vp);
         } else {
           if (m_dlg.m_bDataPlot[i]) {
-            RenderGribBarbedArrows(i, vp);      // Wind barbs.
+            RenderGribBarbedArrows(i, vp);  // Wind barbs.
             // @todo remove pGR argument and use m_LayerSet
-            //RenderGribIsobar(i, pGR, pIA, vp);  // Wind isobars.
-            //RenderGribNumbers(i, pGR, vp);
+            // RenderGribIsobar(i, pGR, pIA, vp);  // Wind isobars.
+            // RenderGribNumbers(i, pGR, vp);
             RenderGribParticles(i, vp);  // Wind particles.
           } else {
             if (m_Settings.Settings[i].m_iBarbedVisibility)
@@ -578,12 +567,12 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
         if (!overlay) { /*no overalay for pressure*/
           if (m_dlg.m_bDataPlot[i]) {
             // @todo remove pGR argument and use m_LayerSet
-            //RenderGribIsobar(i, pGR, pIA, vp);  // Pressure isobars.
-            //RenderGribNumbers(i, pGR, vp);
+            // RenderGribIsobar(i, pGR, pIA, vp);  // Pressure isobars.
+            // RenderGribNumbers(i, pGR, vp);
           } else {
             if (m_Settings.Settings[i].m_iIsoBarVisibility) {
               // @todo remove pGR argument and use m_LayerSet
-              //RenderGribIsobar(i, pGR, pIA, vp);
+              // RenderGribIsobar(i, pGR, pIA, vp);
             }
           }
         }
@@ -593,13 +582,13 @@ bool GRIBOverlayFactory::DoRenderGribOverlay(PlugIn_ViewPort *vp) {
 
         if (overlay) { /* render overlays first */
           // @todo remove pGR argument and use m_LayerSet
-          //RenderGribOverlayMap(i, pGR, vp);
+          // RenderGribOverlayMap(i, pGR, vp);
         } else {
           RenderGribBarbedArrows(i, vp);
           // @todo remove pGR argument and use m_LayerSet
-          //RenderGribIsobar(i, pGR, pIA, vp);
-          //RenderGribDirectionArrows(i, pGR, vp);
-          //RenderGribNumbers(i, pGR, vp);
+          // RenderGribIsobar(i, pGR, pIA, vp);
+          // RenderGribDirectionArrows(i, pGR, vp);
+          // RenderGribNumbers(i, pGR, vp);
           RenderGribParticles(i, vp);
         }
       }

@@ -311,7 +311,9 @@ GRIBUICtrlBar::~GRIBUICtrlBar() {
     pConf->Write(_T( "WindWaves" ), xyGribConfig.windWaves);
   }
   delete m_vp;
+  m_vp = nullptr;
   delete m_pTimelineSet;
+  m_pTimelineSet = nullptr;
 }
 
 wxBitmap GRIBUICtrlBar::GetScaledBitmap(wxBitmap bitmap,
@@ -881,14 +883,16 @@ void GRIBUICtrlBar::MenuAppend(wxMenu *menu, int id, wxString label,
                                wxMenu *submenu) {
   wxMenuItem *item = new wxMenuItem(menu, id, label, _T(""), kind);
   // add a submenu to this item if necessary
-  if (submenu) item->SetSubMenu(submenu);
+  if (submenu) {
+    item->SetSubMenu(submenu);
+  }
 
-    /* Menu font do not work properly for MSW (wxWidgets 3.2.1)
-    #ifdef __WXMSW__
-      wxFont *qFont = OCPNGetFont(_("Menu"), 0);
-      item->SetFont(*qFont);
-    #endif
-    */
+  /* Menu font do not work properly for MSW (wxWidgets 3.2.1)
+  #ifdef __WXMSW__
+    wxFont *qFont = OCPNGetFont(_("Menu"), 0);
+    item->SetFont(*qFont);
+  #endif
+  */
 
 #if defined(__WXMSW__) || defined(__WXGTK__)
   if (!bitmap.IsSameAs(wxNullBitmap)) item->SetBitmap(bitmap);
@@ -1289,7 +1293,6 @@ void GRIBUICtrlBar::StopPlayBack() {
 
 void GRIBUICtrlBar::TimelineChanged() {
   if (!m_LayerSet.IsOK()) {
-    pPlugIn->GetGRIBOverlayFactory()->SetGribTimelineRecordSet(nullptr);
     return;
   }
 
@@ -1691,7 +1694,6 @@ void GRIBUICtrlBar::OnNext(wxCommandEvent &event) {
 
 void GRIBUICtrlBar::ComputeBestForecastForNow() {
   if (!m_LayerSet.IsOK()) {
-    pPlugIn->GetGRIBOverlayFactory()->SetGribTimelineRecordSet(nullptr);
     return;
   }
 
@@ -1743,7 +1745,6 @@ void GRIBUICtrlBar::SetGribTimelineRecordSet(
 
   if (!pPlugIn->GetGRIBOverlayFactory()) return;
 
-  pPlugIn->GetGRIBOverlayFactory()->SetGribTimelineRecordSet(m_pTimelineSet);
   pPlugIn->GetGRIBOverlayFactory()->SetGribLayerSet(&m_LayerSet);
 }
 

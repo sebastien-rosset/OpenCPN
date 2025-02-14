@@ -195,7 +195,6 @@ public:
     m_ParentSize.SetHeight(h);
   }
 
-  void SetGribTimelineRecordSet(GribTimelineRecordSet *pGribTimelineRecordSet1);
   void SetGribLayerSet(GRIBLayerSet *layerSet);
 
   bool RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp);
@@ -209,7 +208,7 @@ public:
     m_ParticleMap = nullptr;
   }
 
-  GribTimelineRecordSet *m_pGribTimelineRecordSet;
+  /** The GRIB layer manager. */
   GRIBLayerSet *m_pGribLayerSet;
 
   void DrawMessageZoomOut(PlugIn_ViewPort *vp);
