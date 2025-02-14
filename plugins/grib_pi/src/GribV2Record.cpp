@@ -1356,6 +1356,39 @@ bool GribV2Record::mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
             if (grid->md.stat_proc.t[0].incr_length == 0)
               *n_avg = 0;
             else {
+              /*
+                 In GRIB2, a statistical processing field (like average,
+                 accumulation, min/max) can be defined with an increment length
+                 that specifies how often observations were taken. For example,
+                 a 450-hour increment means observations were taken every 450
+                 hours.
+
+                 GRIB1 format has more limited capabilities and cannot
+                 properly represent data with large time increments. When
+                 converting from GRIB2 to GRIB1:
+                 - increment_length = 0: Valid, means continuous processing
+                 - increment_length > 0: Cannot be mapped to GRIB1, which
+                   doesn't support discrete time intervals
+
+                 Common cases that trigger this:
+                 1. Statistical processing (Template 8): Average/accumulation
+                 fields with increments.
+                 2. Min/Max fields (proc_code 2/3): Temperature extremes with
+                 increments.
+                 3. NCEP specific fields: Uses proc_code 255 for certain
+                 parameters.
+
+                 Example that fails:
+                 - GRIB2 field: Maximum temperature over 450 hours, measured
+                 every 450 hours.
+                 - Cannot be represented in GRIB1 because GRIB1 assumes
+                 continuous sampling.
+
+                 This limitation primarily affects long-range forecast
+                 products that use discrete time intervals for statistical
+                 processing. Most operational weather models with shorter time
+                 ranges (like 3-hourly or 6-hourly data) are not affected.
+              */
               wxLogMessage(
                   "GRIB2 Time Range Error [%s model=%d-%d]: Cannot map "
                   "discrete processing with %dh increment",
