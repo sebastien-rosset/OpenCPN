@@ -887,14 +887,17 @@ bool GRIBOverlayFactory::CreateGribGLTexture(GribOverlay *pGO, int settings,
 }
 #endif
 
-wxImage GRIBOverlayFactory::CreateGribImage(int settings, GribRecord *pGR,
-                                            PlugIn_ViewPort *vp,
+wxImage GRIBOverlayFactory::CreateGribImage(int settings, PlugIn_ViewPort *vp,
                                             int grib_pixel_size,
                                             const wxPoint &porg) {
+  double latmin, latmax, lonmin, lonmax;
+  if (!m_pGribLayerSet.GetZoneLimits(&latmin, &latmax, &lonmin, &lonmax)) {
+    return wxNullImage;
+  }
   wxPoint pmin;
-  GetCanvasPixLL(vp, &pmin, pGR->getLatMin(), pGR->getLonMin());
+  GetCanvasPixLL(vp, &pmin, latmin, lonmin);
   wxPoint pmax;
-  GetCanvasPixLL(vp, &pmax, pGR->getLatMax(), pGR->getLonMax());
+  GetCanvasPixLL(vp, &pmax, latmax, lonmax);
 
   int width = abs(pmax.x - pmin.x);
   int height = abs(pmax.y - pmin.y);
@@ -903,6 +906,10 @@ wxImage GRIBOverlayFactory::CreateGribImage(int settings, GribRecord *pGR,
   //    )
   if (width > m_ParentSize.GetWidth() || height > m_ParentSize.GetHeight())
     return wxNullImage;
+
+  bool polar;
+  int idx, idy;
+  SettingsIdToGribId(settings, idx, idy, polar);
 
   //    This could take a while....
   wxImage gr_image(width, height);
@@ -917,8 +924,8 @@ wxImage GRIBOverlayFactory::CreateGribImage(int settings, GribRecord *pGR,
       p.x = ipix + porg.x;
       p.y = jpix + porg.y;
       GetCanvasLLPix(vp, p, &lat, &lon);
-
-      double v = pGR->getInterpolatedValue(lon, lat);
+      // @todo use magnitude.
+      double v = m_pGribLayerSet->GetInterpolatedValue(idx, lat, lon);
       if (v != GRIB_NOTDEF) {
         v = m_Settings.CalibrateValue(settings, v);
         wxColour c = GetGraphicColor(settings, v);
@@ -1780,7 +1787,7 @@ void GRIBOverlayFactory::RenderGribOverlayMap(int settings, GribRecord **pGR,
       } else {
         if (!pGO->m_pDCBitmap) {
           wxImage bl_image =
-              CreateGribImage(settings, pGRA, vp, grib_pixel_size, porg);
+              CreateGribImage(settings, vp, grib_pixel_size, porg);
           if (bl_image.IsOk()) {
             //    Create a Bitmap
             pGO->m_pDCBitmap = new wxBitmap(bl_image);

@@ -460,7 +460,7 @@ private:
   void DrawSingleGLTexture(GribOverlay *pGO, GribRecord *pGR, double uv[],
                            double x, double y, double xs, double ys);
 #endif
-  wxImage CreateGribImage(int config, GribRecord *pGR, PlugIn_ViewPort *vp,
+  wxImage CreateGribImage(int config, PlugIn_ViewPort *vp,
                           int grib_pixel_size, const wxPoint &porg);
 
   double m_last_vp_scale;

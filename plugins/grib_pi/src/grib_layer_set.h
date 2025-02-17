@@ -90,8 +90,6 @@ public:
    *
    * @param time The forecast time to set as currently selected.
    */
-  // @todo Make sure this function is called when the timeline selection
-  // changes.
   void SetSelectedTime(wxDateTime time) { m_selectedTime = time; }
 
   /**
