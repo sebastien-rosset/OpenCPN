@@ -36,6 +36,7 @@
 #include <wx/stdpaths.h>
 
 #include "grib_pi.h"
+#include "grib_layer_set.h"
 
 #ifdef __WXQT__
 #include "qdebug.h"
@@ -288,6 +289,12 @@ void grib_pi::ShowPreferencesDialog(wxWindow *parent) {
 #endif
 }
 
+// Update level definitions
+#define UPDATE_NONE 0          // No updates needed
+#define UPDATE_FORECAST 1      // Recompute best forecast only
+#define UPDATE_TIMEZONE 2      // Rebuild data list with new timezone
+#define UPDATE_REBUILD_FILE 3  // Complete rebuild of active file needed
+
 void grib_pi::UpdatePrefs(GribPreferencesDialog *Pref) {
   m_bGRIBUseHiDef = Pref->m_cbUseHiDef->GetValue();
   m_bGRIBUseGradualColors = Pref->m_cbUseGradualColors->GetValue();
@@ -303,17 +310,19 @@ void grib_pi::UpdatePrefs(GribPreferencesDialog *Pref) {
     m_pGRIBOverlayFactory->SetSettings(m_bGRIBUseHiDef, m_bGRIBUseGradualColors,
                                        m_bDrawBarbedArrowHead);
 
-  int updatelevel = 0;
+  int updatelevel = UPDATE_NONE;
 
   if (m_bStartOptions != Pref->m_rbStartOptions->GetSelection()) {
     m_bStartOptions = Pref->m_rbStartOptions->GetSelection();
-    updatelevel = 1;
+    // Recompute the best forecast.
+    updatelevel = UPDATE_FORECAST;
   }
 
   if (m_bTimeZone != Pref->m_rbTimeFormat->GetSelection()) {
     m_bTimeZone = Pref->m_rbTimeFormat->GetSelection();
     if (m_pGRIBOverlayFactory) m_pGRIBOverlayFactory->SetTimeZone(m_bTimeZone);
-    updatelevel = 2;
+    // Rebuild data list with new timezone.
+    updatelevel = UPDATE_TIMEZONE;
   }
 
   bool copyrec = Pref->m_cbCopyFirstCumulativeRecord->GetValue();
@@ -321,27 +330,27 @@ void grib_pi::UpdatePrefs(GribPreferencesDialog *Pref) {
   if (m_bCopyFirstCumRec != copyrec || m_bCopyMissWaveRec != copywave) {
     m_bCopyFirstCumRec = copyrec;
     m_bCopyMissWaveRec = copywave;
-    updatelevel = 3;
+    // Completely rebuild current active file.
+    updatelevel = UPDATE_REBUILD_FILE;
   }
 
   if (m_pGribCtrlBar) {
     switch (updatelevel) {
-      case 0:
+      case UPDATE_NONE:
         break;
-      case 3:
+      case UPDATE_REBUILD_FILE:
         // rebuild current activefile with new parameters and rebuil data list
         // with current index
-        m_pGribCtrlBar->CreateActiveFileFromNames(
-            m_pGribCtrlBar->m_bGRIBActiveFile->GetFileNames());
+        m_pGribCtrlBar->CreateActiveFileFromNames();
         m_pGribCtrlBar->PopulateComboDataList();
         m_pGribCtrlBar->TimelineChanged();
         break;
-      case 2:
+      case UPDATE_TIMEZONE:
         // only rebuild  data list with current index and new timezone
         m_pGribCtrlBar->PopulateComboDataList();
         m_pGribCtrlBar->TimelineChanged();
         break;
-      case 1:
+      case UPDATE_FORECAST:
         // only re-compute the best forecast
         m_pGribCtrlBar->ComputeBestForecastForNow();
         break;
@@ -500,16 +509,13 @@ void grib_pi::OnToolbarToolCallback(int id) {
 #endif
     }
     m_pGribCtrlBar->Show();
-    if (m_pGribCtrlBar->m_bGRIBActiveFile) {
-      if (m_pGribCtrlBar->m_bGRIBActiveFile->IsOK()) {
-        ArrayOfGribRecordSets *rsa =
-            m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
-        if (rsa->GetCount() > 1) {
-          SetCanvasContextMenuItemViz(m_MenuItem, true);
-        }
-        if (rsa->GetCount() >= 1) {  // XXX Should be only on Show
-          SendTimelineMessage(m_pGribCtrlBar->TimelineTime());
-        }
+    if (m_pGribCtrlBar->m_LayerSet.IsOK()) {
+      auto timestamps = m_pGribCtrlBar->m_LayerSet.GetForecastTimes();
+      if (timestamps.size() > 1) {
+        SetCanvasContextMenuItemViz(m_MenuItem, true);
+      }
+      if (timestamps.size() >= 1) {
+        SendTimelineMessage(m_pGribCtrlBar->TimelineTime());
       }
     }
     // Toggle is handled by the CtrlBar but we must keep plugin manager b_toggle
@@ -611,7 +617,7 @@ void grib_pi::SetCursorLatLon(double lat, double lon) {
 }
 
 void grib_pi::OnContextMenuItemCallback(int id) {
-  if (!m_pGribCtrlBar->m_bGRIBActiveFile) return;
+  if (!m_pGribCtrlBar->m_LayerSet.IsOK()) return;
   m_pGribCtrlBar->ContextMenuItemCallback(id);
 }
 
@@ -651,7 +657,7 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
     if (m_pGribCtrlBar) {
       if (v.HasMember(_T("WIND SPEED"))) {
         double vkn, ang;
-        if (m_pGribCtrlBar->getTimeInterpolatedValues(
+        if (m_pGribCtrlBar->m_LayerSet.getTimeInterpolatedValues(
                 vkn, ang, Idx_WIND_VX, Idx_WIND_VY, lon, lat, time) &&
             vkn != GRIB_NOTDEF) {
           v[_T("Type")] = wxT("Reply");
@@ -664,7 +670,7 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
       }
       if (v.HasMember(_T("CURRENT SPEED"))) {
         double vkn, ang;
-        if (m_pGribCtrlBar->getTimeInterpolatedValues(
+        if (m_pGribCtrlBar->m_LayerSet.getTimeInterpolatedValues(
                 vkn, ang, Idx_SEACURRENT_VX, Idx_SEACURRENT_VY, lon, lat,
                 time) &&
             vkn != GRIB_NOTDEF) {
@@ -677,8 +683,8 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
         }
       }
       if (v.HasMember(_T("GUST"))) {
-        double vkn = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_WIND_GUST,
-                                                              lon, lat, time);
+        double vkn = m_pGribCtrlBar->m_LayerSet.getTimeInterpolatedValue(
+            Idx_WIND_GUST, lon, lat, time);
         if (vkn != GRIB_NOTDEF) {
           v[_T("Type")] = wxT("Reply");
           v[_T("GUST")] = vkn;
@@ -686,8 +692,8 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
           v.Remove(_T("GUST"));
       }
       if (v.HasMember(_T("SWELL"))) {
-        double vkn = m_pGribCtrlBar->getTimeInterpolatedValue(Idx_HTSIGW, lon,
-                                                              lat, time);
+        double vkn = m_pGribCtrlBar->m_LayerSet.getTimeInterpolatedValue(
+            Idx_HTSIGW, lon, lat, time);
         if (vkn != GRIB_NOTDEF) {
           v[_T("Type")] = wxT("Reply");
           v[_T("SWELL")] = vkn;
@@ -725,7 +731,8 @@ void grib_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
     if (!m_pGribCtrlBar) OnToolbarToolCallback(0);
 
     GribTimelineRecordSet *set =
-        m_pGribCtrlBar ? m_pGribCtrlBar->GetTimeLineRecordSet(time) : nullptr;
+        m_pGribCtrlBar ? m_pGribCtrlBar->m_LayerSet.GetTimeLineRecordSet(&time)
+                       : nullptr;
 
     char ptr[64];
     snprintf(ptr, sizeof ptr, "%p", set);

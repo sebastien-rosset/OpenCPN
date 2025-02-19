@@ -92,7 +92,7 @@ struct Particle {
   /** Duration this particle should exist in animation cycles. */
   int m_Duration;
 
-  // history is a ringbuffer.. because so many particles are
+  // history is a ringbuffer. because so many particles are
   // used, it is a slight optimization over std::list
   int m_HistoryPos, m_HistorySize, m_Run;
   struct ParticleNode {
@@ -165,6 +165,8 @@ private:
 class GRIBUICtrlBar;
 class GribRecord;
 class GribTimelineRecordSet;
+class GRIBLayer;
+class GRIBLayerSet;
 
 /**
  * Factory class for creating and managing GRIB data visualizations.
@@ -193,7 +195,8 @@ public:
     m_ParentSize.SetHeight(h);
   }
 
-  void SetGribTimelineRecordSet(GribTimelineRecordSet *pGribTimelineRecordSet1);
+  void SetGribLayerSet(GRIBLayerSet *layerSet);
+
   bool RenderGribOverlay(wxDC &dc, PlugIn_ViewPort *vp);
   bool RenderGLGribOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp);
 
@@ -205,7 +208,8 @@ public:
     m_ParticleMap = nullptr;
   }
 
-  GribTimelineRecordSet *m_pGribTimelineRecordSet;
+  /** The GRIB layer manager. */
+  GRIBLayerSet *m_pGribLayerSet;
 
   void DrawMessageZoomOut(PlugIn_ViewPort *vp);
   void GetGraphicColor(int settings, double val, unsigned char &r,
@@ -219,17 +223,170 @@ public:
 private:
   void InitColorsTable();
 
+  /**
+   * Maps UI settings identifiers to GRIB record indices for data access.
+   *
+   * This function translates between the UI-level settings enumeration and the
+   * internal GRIB record indices used to access weather data. It handles both
+   * scalar quantities (single index) and vector quantities (requiring two
+   * components).
+   *
+   * For vector quantities like wind and current:
+   * - idx receives the X/U component index
+   * - idy receives the Y/V component index
+   *
+   * For polar quantities like waves:
+   * - idx receives the magnitude index (e.g., wave height)
+   * - idy receives the direction index
+   * - polar is set to true
+   *
+   * For scalar quantities (pressure, temperature, etc.):
+   * - Only idx is set
+   * - idy remains -1
+   * - polar remains false
+   *
+   * Most parameters are only available at surface level (m_Altitude == 0).
+   * Wind data is unique in being available at multiple altitude levels, with
+   * the indices offset by m_Altitude.
+   *
+   * @param i        Input settings identifier from GribOverlaySettings
+   * @param idx      Output primary data index (X component or scalar value)
+   * @param idy      Output secondary data index (Y component or direction)
+   * @param polar    Output flag indicating if data is in polar coordinates or
+   * cartesian coordinates.
+   *
+   * @note If m_Altitude > 0 for parameters other than wind, no indices are
+   *       assigned (remain -1) since the data is only available at surface.
+   */
   void SettingsIdToGribId(int i, int &idx, int &idy, bool &polar);
   bool DoRenderGribOverlay(PlugIn_ViewPort *vp);
-  void RenderGribBarbedArrows(int config, GribRecord **pGR,
-                              PlugIn_ViewPort *vp);
+  /**
+   * Renders wind barbs showing both wind direction and speed.
+   *
+   * Creates standard meteorological wind barbs that indicate:
+   * - Wind direction with the barb's orientation.
+   * - Wind speed using standardized feather notation:
+   *   * Short barb: 5 knots
+   *   * Long barb: 10 knots
+   *   * Triangular flag: 50 knots
+   *   * Combinations show total wind speed
+   *
+   * Wind barbs can be placed using either:
+   * - Fixed spacing: Regular grid with configurable spacing.
+   * - Minimum spacing: Dynamic placement with guaranteed minimum separation.
+   *
+   * Features:
+   * - Optional arrowhead on the barb shaft.
+   * - Southern hemisphere wind barbs drawn with reversed feather orientation.
+   * - Color coding based on wind speed ranges or fixed color.
+   * - Anti-aliased rendering in OpenGL mode.
+   *
+   * @param settings Wind data settings (type must be WIND)
+   * @param vp Current viewport parameters
+   */
+  void RenderGribBarbedArrows(int config, PlugIn_ViewPort *vp);
+  /**
+   * Renders isobars (lines of equal value) for a GRIB parameter.
+   *
+   * Calculates and renders isolines at specified intervals for meteorological
+   * parameters like pressure, wind, temperature, etc. These lines connect
+   * points of equal value across the chart.
+   *
+   * @param config Settings index indicating which parameter type to render
+   * (e.g. pressure, temperature)
+   * @param pGR Array of GRIB records to use for isobar calculation
+   * @param pIsobarArray Array to store calculated isobar line segments. Each
+   * element is a collection of points defining an isoline path. The array is
+   * populated by this function and used for actual rendering.
+   * @param vp Current viewport information including boundaries and scale
+   */
   void RenderGribIsobar(int config, GribRecord **pGR,
                         wxArrayPtrVoid **pIsobarArray, PlugIn_ViewPort *vp);
+  /**
+   * Renders directional arrows for vector GRIB data like current or wave
+   * direction.
+   *
+   * Creates arrows showing direction of phenomena like currents or waves.
+   * Arrows can be:
+   * - Single arrows of fixed or variable width
+   * - Double arrows (two parallel lines with arrowhead)
+   * - Optionally scaled based on magnitude
+   *
+   * Arrow placement uses either:
+   * - Fixed spacing: Regular grid with configurable spacing between arrows
+   * - Minimum spacing: Dynamic placement ensuring minimum distance between
+   * arrows
+   *
+   * In minimum spacing mode, arrows follow the GRIB data grid while maintaining
+   * minimum separation. This provides more natural data representation while
+   * avoiding visual clutter.
+   *
+   * Arrows are drawn using either:
+   * - DC mode: Standard bitmap drawing
+   * - OpenGL mode: Hardware accelerated line rendering with anti-aliasing
+   *
+   * @param settings GRIB data type identifier (current, waves etc.)
+   * @param pGR Array of GRIB records containing vector components
+   * @param vp Current viewport parameters
+   */
   void RenderGribDirectionArrows(int config, GribRecord **pGR,
                                  PlugIn_ViewPort *vp);
+  /**
+   * Renders color-coded overlay map of GRIB data.
+   *
+   * Generates bitmap/texture visualization using:
+   * - OpenGL texture for hardware rendering
+   * - wxBitmap for software rendering
+   * - Bilinear interpolation between grid points
+   * - Configurable transparency and color scales
+   * - Masking for undefined grid values
+   *
+   * @param settings Overlay type (wind, pressure, etc.)
+   * @param pGR Array of GRIB records
+   * @param vp Viewport parameters
+   */
   void RenderGribOverlayMap(int config, GribRecord **pGR, PlugIn_ViewPort *vp);
+  /**
+   * Renders numerical values from GRIB data as text labels on the chart.
+   *
+   * This function creates and draws text labels showing numerical values from
+   * GRIB data, such as wind speed, pressure, temperature etc. Labels can be
+   * drawn with either fixed or minimum spacing between them.
+   *
+   * For fixed spacing:
+   * - Labels are drawn in a regular grid pattern with configurable spacing
+   * - Each grid point shows the interpolated value at that location
+   * - Grid covers the visible chart area
+   *
+   * For minimum spacing:
+   * - Labels are placed with at least the minimum configured distance between
+   * them
+   * - Placement follows the underlying GRIB data grid points
+   * - Avoids visual clutter while maintaining data visibility
+   *
+   * The labels are color-coded based on the value ranges and use alpha
+   * transparency. In OpenGL mode, labels are rendered using texture fonts for
+   * better performance.
+   *
+   * @param settings GRIB data type identifier (wind, pressure, waves etc.)
+   * @param pGR Array of GRIB records containing the data
+   * @param vp Current viewport parameters
+   */
   void RenderGribNumbers(int config, GribRecord **pGR, PlugIn_ViewPort *vp);
-  void RenderGribParticles(int settings, GribRecord **pGR, PlugIn_ViewPort *vp);
+  /**
+   * Renders flow particles to visualize wind or current movement.
+   *
+   * Particles provide an animated visualization of flow fields (wind or
+   * current) by simulating the movement of particles through the vector field.
+   * Each particle:
+   * - Maintains a history trail showing its recent path
+   * - Updates position based on interpolated vector data
+   * - Adjusts color based on vector magnitude
+   *
+   * @param settings Index into GribOverlaySettings for display parameters
+   * @param vp Current viewport parameters
+   */
+  void RenderGribParticles(int settings, PlugIn_ViewPort *vp);
   void DrawLineBuffer(LineBuffer &buffer);
   void OnParticleTimer(wxTimerEvent &event);
 
@@ -255,14 +412,55 @@ private:
   wxImage &getLabel(double value, int settings, wxColour back_colour);
 
 #ifdef ocpnUSE_GL
+  /**
+   * Main OpenGL texture rendering method for GRIB data overlay.
+   *
+   * Handles full-viewport rendering by splitting into grid cells and
+   * performing per-cell texture mapping with proper projection and distortion.
+   *
+   * @param pGO Overlay object containing texture data
+   * @param pGR Source GRIB record for grid coordinates
+   * @param vp Current viewport parameters
+   *
+   * @note Requires OpenGL context and texture binding before call
+   */
   void DrawGLTexture(GribOverlay *pGO, GribRecord *pGR, PlugIn_ViewPort *vp);
   void GetCalibratedGraphicColor(int settings, double val_in,
                                  unsigned char *data);
+  /**
+   * Creates OpenGL texture from GRIB data.
+   *
+   * @param pGO Overlay object to store texture
+   * @param settings Data type settings (wind, pressure etc)
+   * @param pGR Source GRIB record
+   * @return True if texture created successfully
+   *
+   * @note Manages:
+   *  - Downsampling for large grids
+   *  - RGBA color mapping
+   *  - Edge handling for global wrap
+   *  - POT texture dimensions
+   */
   bool CreateGribGLTexture(GribOverlay *pGO, int config, GribRecord *pGR);
+  /**
+   * Renders a single GRIB texture quad.
+   *
+   * @param pGO Overlay containing texture
+   * @param pGR GRIB record for coordinates
+   * @param uv Texture coordinates array
+   * @param x,y Screen position
+   * @param width,height Dimensions to render
+   *
+   * @note Handles:
+   * - Texture coordinate mapping
+   * - Alpha blending
+   * - Shader program binding
+   * - Matrix transformations
+   */
   void DrawSingleGLTexture(GribOverlay *pGO, GribRecord *pGR, double uv[],
                            double x, double y, double xs, double ys);
 #endif
-  wxImage CreateGribImage(int config, GribRecord *pGR, PlugIn_ViewPort *vp,
+  wxImage CreateGribImage(int config, PlugIn_ViewPort *vp,
                           int grib_pixel_size, const wxPoint &porg);
 
   double m_last_vp_scale;

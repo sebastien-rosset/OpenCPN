@@ -101,6 +101,8 @@ void GribV1Record::translateDataType() {
   //--------------------------------
   else if (idCenter == 7 && idModel == 45 && idGrid == 255) {
     dataCenterModel = NOAA_RTOFS;
+  } else if ((idCenter == 7 && idModel == 83)) {
+    dataCenterModel = NOAA_HRRR;
   }
   //----------------------------------------------
   // NCEP sea surface temperature

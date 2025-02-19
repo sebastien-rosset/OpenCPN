@@ -29,6 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // #include "model/georef.h"
 #include <wx/graphics.h>
 
+#include "grib_layer_set.h"
 #include "IsoLine.h"
 #include "GribSettingsDialog.h"
 #include "GribOverlayFactory.h"

@@ -399,13 +399,20 @@ static bool unpackGDS(GRIBMessage *grib_msg) {
 
   src = b[5]; /* source of grid definition */
   if (src != 0) {
-    fprintf(stderr, "Don't recognize predetermined grid definitions");
+    wxLogMessage(
+        "GRIB2 Error in %s: Don't recognize predetermined grid definitions "
+        "with "
+        "source value %d",
+        src);
     return false;
   }
 
   num_in_list = b[10]; /* quasi-regular grid indication */
   if (num_in_list > 0) {
-    fprintf(stderr, "Unable to unpack quasi-regular grids");
+    wxLogMessage(
+        "GRIB2 Error: Unable to unpack quasi-regular grids with %d grid points "
+        "list",
+        num_in_list);
     return false;
   }
 
@@ -502,8 +509,9 @@ static bool unpackGDS(GRIBMessage *grib_msg) {
           1000000.; /* longitude of southern pole of projection */
       break;
     default:
-      fprintf(stderr, "Grid template %d is not understood\n",
-              grib_msg->md.gds_templ_num);
+      wxLogMessage(
+          "GRIB2 Grid Definition Section Error: Template %d is not supported",
+          grib_msg->md.gds_templ_num);
       return false;
   }
   return true;
@@ -551,7 +559,7 @@ static bool unpackPDS(GRIBMessage *grib_msg) {
 
   num_coords = uint2(b + 5); /* indication of hybrid coordinate system */
   if (num_coords > 0) {
-    fprintf(stderr, "Unable to decode hybrid coordinates");
+    wxLogMessage("Unable to decode hybrid coordinates");
     return false;
   }
 
@@ -619,8 +627,10 @@ static bool unpackPDS(GRIBMessage *grib_msg) {
       }
       break;
     default:
-      fprintf(stderr, "Product Definition Template %d is not understood\n",
-              grib_msg->md.pds_templ_num);
+      wxLogMessage(
+          "GRIB2 Product Definition Section Error: Template %d is not "
+          "supported",
+          grib_msg->md.pds_templ_num);
       return false;
   }
   return true;
@@ -667,10 +677,10 @@ static bool unpackDRS(GRIBMessage *grib_msg) {
           grib_msg->md.complex_pack.primary_miss_sub = uint4(b + 23);
           grib_msg->md.complex_pack.secondary_miss_sub = uint4(b + 27);
         } else {
-          fprintf(stderr,
-                  "Unable to decode missing value substitutes for original "
-                  "value type %d\n",
-                  grib_msg->md.orig_val_type);
+          wxLogMessage(
+              "Unable to decode missing value substitutes for original "
+              "value type %d",
+              grib_msg->md.orig_val_type);
           return false;
         }
         grib_msg->md.complex_pack.num_groups = uint4(b + 31);
@@ -692,8 +702,10 @@ static bool unpackDRS(GRIBMessage *grib_msg) {
       }
       break;
     default:
-      fprintf(stderr, "Data template %d is not understood\n",
-              grib_msg->md.drs_templ_num);
+      wxLogMessage(
+          "GRIB2 Data Representation Section Error: Template %d is not "
+          "supported",
+          grib_msg->md.drs_templ_num);
       return false;
   }
   return true;
@@ -735,9 +747,9 @@ static bool unpackBMS(GRIBMessage *grib_msg) {
       grib_msg->md.bmssize = 0;
       break;
     default:
-      fprintf(stderr,
-              "This code is not currently set up to deal with predefined "
-              "bit-maps\n");
+      wxLogMessage(
+          "This code is not currently set up to deal with predefined "
+          "bit-maps");
       return false;
   }
   return true;
@@ -970,9 +982,8 @@ static bool unpackDS(GRIBMessage *grib_msg) {
             grib_msg->grids.gridpoints[l] = GRIB_MISSING_VALUE;
         }
       } else {
-        fprintf(stderr,
-                "g2_unpack7: Invalid precision=%d for Data Section 5.4.\n",
-                grib_msg->md.precision);
+        wxLogMessage("g2_unpack7: Invalid precision=%d for Data Section 5.4.",
+                     grib_msg->md.precision);
         return false;
       }
     } break;
@@ -1220,8 +1231,8 @@ static int mapStatisticalEndTime(GRIBMessage *grid) {
       case 4:
         return (grid->md.stat_proc.eyr - grid->yr);
       default:
-        fprintf(stderr, "Unable to map end time with units %d to GRIB1\n",
-                grid->md.time_unit);
+        wxLogMessage("Unable to map end time with units %d to GRIB1",
+                     grid->md.time_unit);
         return UINT_MAX;
     }
 
@@ -1236,16 +1247,16 @@ static int mapStatisticalEndTime(GRIBMessage *grid) {
     return grid->md.fcst_time + grid->md.stat_proc.t[0].time_length / 60;
   }
 
-  fprintf(stderr, "Unable to map end time %d %d %d %d \n", grid->md.time_unit,
-          grid->md.stat_proc.t[0].time_unit, grid->md.fcst_time,
-          grid->md.stat_proc.t[0].time_length);
+  wxLogMessage("Unable to map end time %d %d %d %d", grid->md.time_unit,
+               grid->md.stat_proc.t[0].time_unit, grid->md.fcst_time,
+               grid->md.stat_proc.t[0].time_length);
   return UINT_MAX;
 }
 
 // map GRIB2 msg time to GRIB1 P1 and P2 in sec
-static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
-                         zuchar *t_range, int *n_avg, int *n_missing,
-                         int center) {
+bool GribV2Record::mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
+                                zuchar *t_range, int *n_avg, int *n_missing,
+                                int center) const {
   switch (grid->md.pds_templ_num) {
     case 0:
     case 1:
@@ -1312,15 +1323,13 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
               *t_range = 140;
               break;
             default:
-              fprintf(
-                  stderr,
-                  "Unable to map NCEP statistical process code %d to GRIB1\n",
+              wxLogMessage(
+                  "Unable to map NCEP statistical process code %d to GRIB1",
                   grid->md.stat_proc.t[0].proc_code);
               return false;
           }
         } else {
-          fprintf(stderr,
-                  "Unable to map multiple statistical processes to GRIB1\n");
+          wxLogMessage("Unable to map multiple statistical processes to GRIB1");
           return false;
         }
       } else {
@@ -1347,7 +1356,44 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
             if (grid->md.stat_proc.t[0].incr_length == 0)
               *n_avg = 0;
             else {
-              fprintf(stderr, "Unable to map discrete processing to GRIB1\n");
+              /*
+                 In GRIB2, a statistical processing field (like average,
+                 accumulation, min/max) can be defined with an increment length
+                 that specifies how often observations were taken. For example,
+                 a 450-hour increment means observations were taken every 450
+                 hours.
+
+                 GRIB1 format has more limited capabilities and cannot
+                 properly represent data with large time increments. When
+                 converting from GRIB2 to GRIB1:
+                 - increment_length = 0: Valid, means continuous processing
+                 - increment_length > 0: Cannot be mapped to GRIB1, which
+                   doesn't support discrete time intervals
+
+                 Common cases that trigger this:
+                 1. Statistical processing (Template 8): Average/accumulation
+                 fields with increments.
+                 2. Min/Max fields (proc_code 2/3): Temperature extremes with
+                 increments.
+                 3. NCEP specific fields: Uses proc_code 255 for certain
+                 parameters.
+
+                 Example that fails:
+                 - GRIB2 field: Maximum temperature over 450 hours, measured
+                 every 450 hours.
+                 - Cannot be represented in GRIB1 because GRIB1 assumes
+                 continuous sampling.
+
+                 This limitation primarily affects long-range forecast
+                 products that use discrete time intervals for statistical
+                 processing. Most operational weather models with shorter time
+                 ranges (like 3-hourly or 6-hourly data) are not affected.
+              */
+              wxLogMessage(
+                  "GRIB2 Time Range Error [%s model=%d-%d]: Cannot map "
+                  "discrete processing with %dh increment",
+                  getDataCenterStr(), idCenter, idModel,
+                  grid->md.stat_proc.t[0].incr_length);
               return false;
             }
             break;
@@ -1363,7 +1409,12 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
             if (grid->md.stat_proc.t[0].incr_length == 0)
               *n_avg = 0;
             else {
-              fprintf(stderr, "Unable to map discrete processing to GRIB1\n");
+              wxLogMessage(
+                  "GRIB2 Time Range Error [%s model=%d-%d]: Cannot map "
+                  "discrete processing for %s with %dh increment",
+                  getDataCenterStr(), idCenter, idModel,
+                  grid->md.stat_proc.t[0].proc_code == 2 ? "max" : "min",
+                  grid->md.stat_proc.t[0].incr_length);
               return false;
             }
             break;
@@ -1384,8 +1435,13 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
                       if (grid->md.stat_proc.t[0].incr_length == 0)
                         *n_avg = 0;
                       else {
-                        fprintf(stderr,
-                                "Unable to map discrete processing to GRIB1\n");
+                        wxLogMessage(
+                            "GRIB2 Time Range Error [%s model=%d-%d]: Cannot "
+                            "map discrete processing for param %d with %dh "
+                            "increment",
+                            getDataCenterStr(), idCenter, idModel,
+                            grid->md.param_num,
+                            grid->md.stat_proc.t[0].incr_length);
                         return false;
                       }
                       break;
@@ -1393,8 +1449,12 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
                 }
               }
             } else {
-              fprintf(stderr, "Unable to map statistical process %d to GRIB1\n",
-                      grid->md.stat_proc.t[0].proc_code);
+              wxLogMessage(
+                  "GRIB2 Process Error: Cannot map statistical processing "
+                  "(code=%d, center=%d, discipline=%d, category=%d) to GRIB1 "
+                  "format",
+                  grid->md.stat_proc.t[0].proc_code, center, grid->disc,
+                  grid->md.param_cat);
               return false;
             }
         }
@@ -1402,10 +1462,10 @@ static bool mapTimeRange(GRIBMessage *grid, zuint *p1, zuint *p2,
       *n_missing = grid->md.stat_proc.nmiss;
       break;
     default:
-      fprintf(stderr,
-              "Unable to map time range for Product Definition Template %d "
-              "into GRIB1\n",
-              grid->md.pds_templ_num);
+      wxLogMessage(
+          "Unable to map time range for Product Definition Template %d "
+          "into GRIB1",
+          grid->md.pds_templ_num);
       return false;
   }
   return true;
@@ -1453,6 +1513,8 @@ void GribV2Record::translateDataType() {
   else if ((idCenter == 7 && idModel == 44 && idGrid == 173) ||
            (idCenter == 7 && idModel == 44 && idGrid == 235)) {
     dataCenterModel = NOAA_NCEP_SST;
+  } else if ((idCenter == 7 && idModel == 83)) {
+    dataCenterModel = NOAA_HRRR;
   }
   //----------------------------------------------
   // FNMOC WW3 mediterranean sea
@@ -1850,7 +1912,7 @@ static bool unpackIS(ZUFILE *fp, GRIBMessage *grib_msg) {
 
   if (strncmp(&((char *)grib_msg->buffer)[grib_msg->total_len - 4], "7777",
               4) != 0)
-    fprintf(stderr, "Warning: no end section found\n");
+    wxLogMessage("Warning: no end section found in GRIB2 file");
 
   grib_msg->offset = 128;
   return true;

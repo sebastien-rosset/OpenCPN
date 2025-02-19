@@ -81,8 +81,8 @@ public:
    * @param rsa Array of GRIB record sets containing the weather data
    * @param NowIndex Index of the current time point to highlight
    */
-  void InitGribTable(int zone, ArrayOfGribRecordSets *rsa);
-  void InitGribTable(int zone, ArrayOfGribRecordSets *rsa, int NowIndex);
+  void InitGribTable(int zone, const ArrayOfGribRecordSets *rsa);
+  void InitGribTable(int zone, const ArrayOfGribRecordSets *rsa, int NowIndex);
   /**
    * Set the table size and position relative to viewport.
    *
@@ -102,17 +102,17 @@ private:
   int GetVisibleRow(int col);
   void OnScrollToNowTimer(wxTimerEvent &event);
 
-  wxString GetWind(GribRecord **recordarray, int datatype, double &wdir);
-  wxString GetWindGust(GribRecord **recordarray, int datatype);
-  wxString GetPressure(GribRecord **recordarray);
-  wxString GetWaves(GribRecord **recordarray, int datatype, double &wdir);
-  wxString GetRainfall(GribRecord **recordarray);
-  wxString GetCloudCover(GribRecord **recordarray);
-  wxString GetAirTemp(GribRecord **recordarray);
-  wxString GetSeaTemp(GribRecord **recordarray);
-  wxString GetCAPE(GribRecord **recordarray);
-  wxString GetCompRefl(GribRecord **recordarray);
-  wxString GetCurrent(GribRecord **recordarray, int datatype, double &wdir);
+  wxString GetWind(int datatype, double &wdir);
+  wxString GetWindGust(int datatype);
+  wxString GetPressure();
+  wxString GetWaves(int datatype, double &wdir);
+  wxString GetRainfall();
+  wxString GetCloudCover();
+  wxString GetAirTemp();
+  wxString GetSeaTemp();
+  wxString GetCAPE();
+  wxString GetCompRefl();
+  wxString GetCurrent(int datatype, double &wdir);
   wxString GetTimeRowsStrings(wxDateTime date_time, int time_zone, int type);
 
   void OnClose(wxCloseEvent &event);
