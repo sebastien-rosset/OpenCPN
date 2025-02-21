@@ -160,6 +160,11 @@ public:
     m_text_ctrl->Bind(wxEVT_TEXT, [&](wxCommandEvent&) { m_on_text_evt(); });
   }
 
+  bool Show(bool show = true) override {
+    if (!show) m_text_ctrl->SetValue("");
+    return wxWindow::Show(show);
+  }
+
   std::string GetValue() { return m_text_ctrl->GetValue().ToStdString(); }
 
 private:
