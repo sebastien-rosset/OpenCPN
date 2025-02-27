@@ -294,7 +294,7 @@ private:
 class TheMenu : public wxMenu {
 public:
   enum class Id {
-    kNewFilter,
+    kNewFilter = 1,
     kEditFilter,
     kDeleteFilter,
     kLogFile,
