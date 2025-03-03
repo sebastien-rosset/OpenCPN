@@ -305,7 +305,7 @@ private:
 class TheMenu : public wxMenu {
 public:
   enum class Id {
-    kNewFilter,
+    kNewFilter = 1,  // MacOS does not want ids to be 0.
     kEditFilter,
     kDeleteFilter,
     kLogFile,
