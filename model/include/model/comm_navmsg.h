@@ -148,6 +148,8 @@ public:
   NavAddr(Bus b, const std::string& i) : bus(b), iface(i) {};
   NavAddr() : bus(Bus::Undef), iface("") {};
 
+  virtual ~NavAddr() = default;
+
   virtual std::string to_string() const {
     return NavAddr::BusToString(bus) + " " + iface;
   }
