@@ -71,6 +71,14 @@ static std::string MsgToString(PlugIn_Position_Fix fix) {
   return ss.str();
 }
 
+static std::string JoinLines(const std::string lines) {
+  std::istringstream is(lines);
+  std::string line;
+  std::string output;
+  while (std::getline(is, line)) output += line + " ";
+  return output.substr(0, output.size() - 1);
+}
+
 static void LogMessage(const std::shared_ptr<const NavMsg>& message,
                        const std::string prefix = "") {
   auto w = wxWindow::FindWindowByName(kDataMonitorWindowName);
@@ -136,7 +144,7 @@ void SendMessageToAllPlugins(const wxString& message_id,
 }
 
 void SendJSONMessageToAllPlugins(const wxString& message_id, wxJSONValue v) {
-  wxJSONWriter w;
+  wxJSONWriter w(wxJSONWRITER_NO_LINEFEEDS | wxJSONWRITER_STYLED);
   wxString out;
   w.Write(v, out);
   auto msg =
@@ -158,7 +166,8 @@ void SendAISSentenceToAllPlugIns(const wxString& sentence) {
         pic->m_pplugin->SetAISSentence(decouple_sentence);
     }
   }
-  auto msg = std::make_shared<PluginMsg>("AIS", sentence.ToStdString());
+  auto msg =
+      std::make_shared<PluginMsg>("AIS", JoinLines(sentence.ToStdString()));
   LogMessage(msg, "AIS data ");
 }
 
