@@ -54,6 +54,7 @@
 #include "wx/jsonreader.h"
 #include "wx/jsonwriter.h"
 
+#include "grib_layer_set.h"
 #include "GribSettingsDialog.h"
 #include "GribOverlayFactory.h"
 #include "GribUIDialog.h"

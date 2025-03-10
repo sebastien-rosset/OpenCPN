@@ -534,8 +534,11 @@ double GribRecord::getInterpolatedValue(double px, double py,
   pi = (px - Lo1) / Di;
   pj = (py - La1) / Dj;
 
-  // 00 10      point is in a square
-  // 01 11
+  // Considering a grid square with corners labeled:
+  // 00 --- 10      i0,j1 --- i1,j1
+  // |      |   or    |         |
+  // 01 --- 11      i0,j0 --- i1,j0
+  // The point is in the square.
   int i0 = (int)pi;  // point 00
   int j0 = (int)pj;
 
@@ -603,7 +606,14 @@ double GribRecord::getInterpolatedValue(double px, double py,
   // interpolation with only three points is too hazardous for angles
   if (dir) return GRIB_NOTDEF;
 
-  // here nbval==3, check the corner without data
+  // here nbval==3, check the corner without data.
+  // A concrete use case would be near land-sea boundaries when interpolating
+  // sea data like wave height, sea temperature, etc. For example, consider
+  // interpolating wave height near a coastline:
+  //   2.1m --- 2.3m
+  //    |       |
+  //  NOTDEF -- 2.0m
+  //  (land)
   if (getValue(i0, j0) == GRIB_NOTDEF) {
     // printf("! h00  %f %f\n", dx,dy);
     xa = getValue(i1, j1);  // A = point 11
@@ -812,4 +822,60 @@ bool GribRecord::getInterpolatedValues(double &M, double &A,
     }
     return val;
 #endif
+}
+
+double GribRecord::GetGribArea() const {
+  // Use average latitude for cosine correction
+  double avgLat = (latMin + latMax) / 2;
+  double cosLat = cos(avgLat * M_PI / 180.0);
+
+  return (lonMax - lonMin) * (latMax - latMin) * cosLat;
+}
+
+double GribRecord::GetIntersectionArea(const GribRecord *r2) const {
+  double itsLatMin = std::max(getLatMin(), r2->getLatMin());
+  double itsLatMax = std::min(getLatMax(), r2->getLatMax());
+  double itsLonMin = std::max(getLonMin(), r2->getLonMin());
+  double itsLonMax = std::min(getLonMax(), r2->getLonMax());
+
+  if (itsLatMin >= itsLatMax || itsLonMin >= itsLonMax) {
+    return 0;  // No intersection
+  }
+
+  // Use average latitude of intersection for cosine correction
+  double avgLat = (itsLatMin + itsLatMax) / 2;
+  double cosLat = cos(avgLat * M_PI / 180.0);
+
+  return (itsLonMax - itsLonMin) * (itsLatMax - itsLatMin) * cosLat;
+}
+
+const char *GribRecord::getDataCenterStr() const {
+  switch (dataCenterModel) {
+    case NOAA_GFS:
+      return "NOAA-GFS";
+    case NOAA_NCEP_WW3:
+      return "NOAA-WW3";
+    case NOAA_NCEP_SST:
+      return "NOAA-SST";
+    case NOAA_RTOFS:
+      return "NOAA-RTOFS";
+    case NOAA_HRRR:
+      return "NOAA-HRRR";
+    case FNMOC_WW3_GLB:
+      return "FNMOC-WW3";
+    case FNMOC_WW3_MED:
+      return "FNMOC-WW3-MED";
+    case NORWAY_METNO:
+      return "MET.NO";
+    case ECMWF_ERA5:
+      return "ECMWF-ERA5";
+    case KNMI_HIRLAM:
+      return "KNMI-HIRLAM";
+    case KNMI_HARMONIE_AROME:
+      return "KNMI-HARMONIE";
+    case OTHER_DATA_CENTER:
+      return "UNKNOWN";
+    default:
+      return "UNKNOWN";
+  }
 }

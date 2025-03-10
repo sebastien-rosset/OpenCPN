@@ -24,6 +24,7 @@
 
 #include <wx/graphics.h>
 #include "GribTable.h"
+#include "grib_layer_set.h"
 #include "folder.xpm"
 
 #define SCROLL_SENSIBILITY 20

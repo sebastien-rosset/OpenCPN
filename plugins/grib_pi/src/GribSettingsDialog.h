@@ -113,27 +113,61 @@ struct GribOverlaySettings {
   enum Units7 { DBZ };
 
   struct OverlayDataSettings {
+    /** Units to display values in (varies by data type - e.g., knots, m/s,
+     * etc.). */
     int m_Units;
+    /** Whether to show wind barbs or current arrows. */
     bool m_bBarbedArrows;
+    /** Visibility threshold for barbed arrows (independent of data plot
+     * display). */
     bool m_iBarbedVisibility;
+    /** Color scheme for barbed arrows (0: Constant, 1: Wind speed colors). */
     int m_iBarbedColour;
+    /** Use fixed spacing between barbed arrows instead of dynamic spacing. */
     bool m_bBarbArrFixSpac;
+    /**
+     * Spacing between barbed arrows in pixels (when fixed spacing is enabled).
+     *
+     * The minimum spacing ensures that no two arrows are closer than minspace
+     * pixels on screen, where minspace is the larger of:
+     * - The user-specified spacing from settings.
+     * - 120% of the wind arrow size (to prevent arrows from overlapping).
+     */
     int m_iBarbArrSpacing;
+    /** Whether to display isobars (lines of equal pressure, height, etc.). */
     bool m_bIsoBars;
+    /** Show abbreviated pressure numbers on isobars (e.g., "04" for 1004 hPa).
+     */
     bool m_bAbbrIsoBarsNumbers;
+    /** Visibility threshold for isobars (independent of data plot display). */
     bool m_iIsoBarVisibility;
+    /** Value spacing between adjacent isobars (e.g., 4 hPa between lines). */
     double m_iIsoBarSpacing;
+    /** Whether to show directional arrows for waves, wind, current. */
     bool m_bDirectionArrows;
+    /** Arrow style (0: Single, 1: Double, 2: Size varies with magnitude). */
     int m_iDirectionArrowForm;
+    /** Use fixed spacing between direction arrows instead of dynamic spacing.
+     */
     bool m_bDirArrFixSpac;
+    /** Arrow size in pixels (when not using magnitude-dependent sizing). */
     int m_iDirectionArrowSize;
+    /** Spacing between direction arrows in pixels (when fixed spacing is
+     * enabled). */
     int m_iDirArrSpacing;
+    /** Whether to display the color-coded overlay map. */
     bool m_bOverlayMap;
+    /** Color scheme for overlay map (index into predefined color tables). */
     int m_iOverlayMapColors;
+    /** Color scheme for overlay map (index into predefined color tables). */
     bool m_bNumbers;
+    /** Use fixed spacing between numbers instead of dynamic spacing. */
     bool m_bNumFixSpac;
+    /** Spacing between numbers in pixels (when fixed spacing is enabled). */
     int m_iNumbersSpacing;
+    /** Whether to display particle animation for wind/current flow. */
     bool m_bParticles;
+    /** Number of particles per unit area (higher = denser animation). */
     double m_dParticleDensity;
 
   } Settings[SETTINGS_COUNT];
