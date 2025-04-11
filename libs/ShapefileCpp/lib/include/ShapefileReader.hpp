@@ -22,78 +22,76 @@
 
 namespace shp {
 
-    class FeatureIterator;
+class FeatureIterator;
 
-    class ShapefileReader {
+class ShapefileReader {
+private:
+  SHPHandle shp;
+  DBFHandle dbf;
 
-        private:
+  int count = -1;
+  int shapeType = -1;
+  /**
+   * Minimum bounds of all shapes in the file [x, y, z, m].
+   * x and y represent spatial coordinates, while z is elevation
+   * and m is measure value (when present in shapefile).
+   */
+  double min[4];
+  /**
+   * Maximum bounds of all shapes in the file [x, y, z, m].
+   * x and y represent spatial coordinates, while z is elevation
+   * and m is measure value (when present in shapefile).
+   */
+  double max[4];
+  /**
+   * Total number of features (records) from the DBF file.
+   */
+  int numberOfFeatures = 0;
 
-            SHPHandle shp;
-            DBFHandle dbf;
+  void getShapeInfo();
+  void getShapeInfo() const;
 
-            int count = -1;
-            int shapeType = -1;
-            /**
-             * Minimum bounds of all shapes in the file [x, y, z, m].
-             * x and y represent spatial coordinates, while z is elevation
-             * and m is measure value (when present in shapefile).
-             */
-            double min[4];
-            /**
-             * Maximum bounds of all shapes in the file [x, y, z, m].
-             * x and y represent spatial coordinates, while z is elevation
-             * and m is measure value (when present in shapefile).
-             */
-            double max[4];
-            /**
-             * Total number of features (records) from the DBF file.
-             */
-            int numberOfFeatures = 0;
+  bool isPoint(int shapeType);
+  bool isMultiPoint(int shapeType);
+  bool isLine(int shapeType);
+  bool isPolygon(int shapeType);
 
-            void getShapeInfo();
+  bool isXY(int shapeType);
+  bool isXYM(int shapeType);
+  bool isXYZ(int shapeType);
 
-            bool isPoint(int shapeType);
-            bool isMultiPoint(int shapeType);
-            bool isLine(int shapeType);
-            bool isPolygon(int shapeType);
+  Point getPoint(const SHPObject& obj, int index);
+  std::unique_ptr<Geometry> createPoint(const SHPObject& obj, int index);
+  std::unique_ptr<Geometry> createLine(const SHPObject& obj);
+  std::unique_ptr<Geometry> createGeometry(const SHPObject& obj);
+  std::unique_ptr<Geometry> createPolygon(const SHPObject& obj);
+  std::unique_ptr<Geometry> createMultiPoint(const SHPObject& obj);
+  std::map<std::string, std::any> getProperties(int index);
 
-            bool isXY(int shapeType);
-            bool isXYM(int shapeType);
-            bool isXYZ(int shapeType);    
+public:
+  ShapefileReader(std::string fileName);
 
-            Point getPoint(const SHPObject& obj, int index);    
-            std::unique_ptr<Geometry> createPoint(const SHPObject& obj, int index);
-            std::unique_ptr<Geometry> createLine(const SHPObject& obj);
-            std::unique_ptr<Geometry> createGeometry(const SHPObject& obj);
-            std::unique_ptr<Geometry> createPolygon(const SHPObject& obj);
-            std::unique_ptr<Geometry> createMultiPoint(const SHPObject& obj);
-            std::map<std::string, std::any> getProperties(int index);
+  ~ShapefileReader();
 
-        public:
+  /** Return true if the reader has opened and loaded the shapefile
+   * successfully. */
+  bool isOpen();
 
-            ShapefileReader(std::string fileName);
+  int getCount();
 
-            ~ShapefileReader();
+  GeometryType getGeometryType();
 
-            /** Return true if the reader has opened and loaded the shapefile successfully. */
-            bool isOpen();
+  Bounds getBounds();
 
-            int getCount();
+  Feature getFeature(int i);
 
-            GeometryType getGeometryType(); 
+  std::vector<Field> getFields();
 
-            Bounds getBounds();
+  void features(std::function<void(Feature feature)> f);
 
-            Feature getFeature(int i);
+  FeatureIterator begin();
 
-            std::vector<Field> getFields();
-            
-            void features(std::function<void(Feature feature)> f);
+  FeatureIterator end();
+};
 
-            FeatureIterator begin();
-
-            FeatureIterator end();
-
-    };
-
-}
+}  // namespace shp

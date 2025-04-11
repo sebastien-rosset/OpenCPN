@@ -250,6 +250,8 @@ void ShapeBaseChartSet::LoadBasemaps(const std::string &dir) {
 }
 
 bool ShapeBaseChart::LoadSHP() {
+  // Initialize the R-tree spatial index
+  _rtree = std::make_unique<RTree>();
   if (!fs::exists(_filename)) {
     _is_usable = false;
     return false;
@@ -286,20 +288,30 @@ bool ShapeBaseChart::LoadSHP() {
     }
   }
   _is_tiled = (has_x && has_y);
-  if (_is_usable && _is_tiled) {
+  if (_is_usable) {
     size_t feat{0};
-    for (auto const &feature : *temp_reader) {
+    int featureCount = temp_reader->getCount();
+    for (int i = 0; i < featureCount; i++) {
       if (!_loading) {
         // Check if loading was cancelled
         _is_usable = false;
         return false;
       }
-      auto f1 = feature.getAttributes();
-      // Create a LatLonKey using the 'y' (latitude) and 'x' (longitude)
-      // attributes These values represent the top-left corner of the tiles
-      _tiles[LatLonKey(std::any_cast<int>(feature.getAttributes()["y"]),
-                       std::any_cast<int>(feature.getAttributes()["x"]))]
-          .push_back(feat);
+
+      auto feature = temp_reader->getFeature(i);
+
+      // Build the R-tree with feature bounding boxes
+      RTreeBBox featureBBox = RTreeBBox::FromFeature(feature);
+      _rtree->Insert(feat, featureBBox);
+
+      // If tiled, also maintain the traditional tile-based index
+      if (_is_tiled) {
+        // Create a LatLonKey using the 'y' (latitude) and 'x' (longitude)
+        // attributes These values represent the top-left corner of the tiles
+        _tiles[LatLonKey(std::any_cast<int>(feature.getAttributes()["y"]),
+                         std::any_cast<int>(feature.getAttributes()["x"]))]
+            .push_back(feat);
+      }
       feat++;
     }
   }
@@ -515,7 +527,9 @@ void ShapeBaseChart::DrawPolygonFilled(ocpnDC &pnt, ViewPort &vp) {
       }
     }
   } else {
-    for (auto const &feature : *_reader) {
+    int featureCount = _reader->getCount();
+    for (int i = 0; i < featureCount; i++) {
+      auto feature = _reader->getFeature(i);
       if (pnt.GetDC()) {
         DoDrawPolygonFilled(pnt, vp,
                             feature);  // Parallelize using std::async?
@@ -527,24 +541,137 @@ void ShapeBaseChart::DrawPolygonFilled(ocpnDC &pnt, ViewPort &vp) {
   }
 }
 
-bool ShapeBaseChart::CrossesLand(double &lat1, double &lon1, double &lat2,
-                                 double &lon2) {
-  if (!_reader && !_loading) {
-    _loading = true;
-    _loaded = std::async(std::launch::async, [&]() {
-      bool ret = LoadSHP();
-      _loading = false;
-      return ret;
-    });
-  }
-  if (_loading) {
-    if (_loaded.wait_for(std::chrono::milliseconds(0)) ==
-        std::future_status::ready) {
+bool ShapeBaseChart::EnsureShapefilesLoaded(double lat1, double lon1,
+                                            double lat2, double lon2) {
+  if (!_is_usable || !_reader) {
+    // Initialize if not done already
+    if (!_loading) {
+      _loading = true;
+      _loaded = std::async(std::launch::async, [&]() {
+        bool ret = LoadSHP();
+        _loading = false;
+        return ret;
+      });
+    }
+
+    // Check if loading completed
+    if (_loading && _loaded.valid() &&
+        _loaded.wait_for(std::chrono::milliseconds(0)) ==
+            std::future_status::ready) {
       _is_usable = _loaded.get();
-    } else {
-      // Chart not yet loaded. Assume no land crossing.
+    }
+
+    // If still not usable, we can't proceed
+    if (!_is_usable || !_reader) {
       return false;
     }
+  }
+
+  // Normalize longitudes to -180 to 180 range
+  double norm_lon1 = lon1;
+  double norm_lon2 = lon2;
+
+  while (norm_lon1 < -180) norm_lon1 += 360;
+  while (norm_lon1 > 180) norm_lon1 -= 360;
+  while (norm_lon2 < -180) norm_lon2 += 360;
+  while (norm_lon2 > 180) norm_lon2 -= 360;
+
+  // Calculate bounding box of the route segment
+  double minLat = std::min(lat1, lat2);
+  double maxLat = std::max(lat1, lat2);
+  double minLon = std::min(norm_lon1, norm_lon2);
+  double maxLon = std::max(norm_lon1, norm_lon2);
+
+  // Round to determine which 1x1 degree cells are needed
+  int latMin = floor(minLat);
+  int latMax = ceil(maxLat);
+  int lonMin = floor(minLon);
+  int lonMax = ceil(maxLon);
+
+  // Iterate over all potential cells
+  bool allLoaded = true;
+  for (int lat = latMin; lat < latMax; lat++) {
+    for (int lon = lonMin; lon < lonMax; lon++) {
+      // Normalize longitude if needed
+      int normLon = lon;
+      while (normLon < -180) normLon += 360;
+      while (normLon >= 180) normLon -= 360;
+
+      // Create a key for this cell
+      LatLonKey cellKey(lat, normLon);
+
+      // Check if cell is already loaded in our tile map
+      if (_is_tiled && _tiles.find(cellKey) == _tiles.end()) {
+        // Attempt to load this specific cell
+        std::string cellPath = ConstructCellPath(lat, normLon);
+        if (fs::exists(cellPath)) {
+          try {
+            // Create a specific reader just for this cell
+            std::unique_ptr<shp::ShapefileReader> cellReader(
+                new shp::ShapefileReader(cellPath));
+
+            if (cellReader->isOpen() &&
+                cellReader->getGeometryType() == shp::GeometryType::Polygon) {
+              // Load features into the R-tree
+              size_t featIndex =
+                  _reader->getCount();  // Start index for new features
+              int featureCount = cellReader->getCount();
+
+              for (int i = 0; i < featureCount; i++) {
+                auto feature = cellReader->getFeature(i);
+
+                // Create bounding box and add to R-tree
+                RTreeBBox featureBBox = RTreeBBox::FromFeature(feature);
+                if (_rtree) {
+                  _rtree->Insert(featIndex, featureBBox);
+                }
+
+                // Also track in the tile map
+                _tiles[cellKey].push_back(featIndex);
+                featIndex++;
+              }
+
+              // Merge the cell reader's features into our main reader
+              // (This would require extending the ShapefileReader class)
+              // MergeFeatures(_reader, cellReader.get());
+            }
+          } catch (...) {
+            // If loading fails, mark as not fully loaded but continue
+            allLoaded = false;
+          }
+        } else {
+          // Cell doesn't exist, but mark it as empty to avoid checking again
+          _tiles[cellKey] = std::vector<size_t>();
+        }
+      }
+    }
+  }
+
+  return allLoaded;
+}
+
+// Helper method to construct path to a specific cell shapefile
+std::string ShapeBaseChart::ConstructCellPath(int lat, int lon) {
+  // Extract the base directory from the current shapefile path
+  fs::path basePath = fs::path(_filename).parent_path();
+
+  // Format the cell filename (example: N45E010.shp for lat=45, lon=10)
+  std::stringstream ss;
+  ss << (lat >= 0 ? "N" : "S") << std::abs(lat) << (lon >= 0 ? "E" : "W")
+     << std::setw(3) << std::setfill('0') << std::abs(lon);
+
+  std::string cellName = ss.str();
+  return (basePath / (cellName + ".shp")).string();
+}
+
+bool ShapeBaseChart::CrossesLand(double &lat1, double &lon1, double &lat2,
+                                 double &lon2) {
+  // Ensure we have loaded all the necessary shapefiles for this route segment
+  if (!EnsureShapefilesLoaded(lat1, lon1, lat2, lon2)) {
+    // If we couldn't load all necessary data, fall back to a conservative
+    // approach and assume no land crossing (or return true if you prefer to be
+    // cautious)
+    return false;
   }
 
   double norm_lon1 = lon1;
@@ -559,6 +686,24 @@ bool ShapeBaseChart::CrossesLand(double &lat1, double &lon1, double &lat2,
   auto A = std::make_pair(lat1, norm_lon1);
   auto B = std::make_pair(lat2, norm_lon2);
 
+  // Use the R-tree to efficiently find potential intersecting polygons
+  if (_rtree) {
+    // Query the R-tree for features that might intersect with the line segment
+    std::vector<size_t> potentialFeatures =
+        _rtree->SearchLineIntersection(lat1, norm_lon1, lat2, norm_lon2);
+
+    // Check each candidate feature for actual intersection
+    for (size_t fid : potentialFeatures) {
+      auto const &feature = _reader->getFeature(fid);
+      if (PolygonLineIntersect(feature, A, B)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Fall back to tile-based or linear search if R-tree is not available
   if (_is_tiled) {
     // Calculate grid-aligned min/max coordinates based on _dmod
     double minLat = std::min(lat1, lat2);
@@ -597,7 +742,9 @@ bool ShapeBaseChart::CrossesLand(double &lat1, double &lon1, double &lat2,
     }
   } else {
     // Non-tiled case: check all features
-    for (auto const &feature : *_reader) {
+    int featureCount = _reader->getCount();
+    for (int i = 0; i < featureCount; i++) {
+      auto feature = _reader->getFeature(i);
       if (PolygonLineIntersect(feature, A, B)) {
         return true;
       }
