@@ -200,7 +200,7 @@ TEST_F(RTreeTest, BBoxArea) {
   RTreeBBox box(10.0, 10.0, 20.0, 30.0);
 
   // Calculate the expected area using the same formula as in the implementation
-  const double R = 6371.0;  // Earth radius in km
+  const double R = 6371.2;  // Earth radius in km
   double minLatRad = 10.0 * M_PI / 180.0;
   double maxLatRad = 20.0 * M_PI / 180.0;
   double dLon = (30.0 - 10.0) * M_PI / 180.0;
@@ -235,7 +235,7 @@ TEST_F(RTreeTest, BBoxEnlargementArea) {
   RTreeBBox overlappingBox(15.0, 15.0, 25.0, 25.0);
 
   // Calculate expected enlargement manually using the spherical Earth formula
-  const double R = 6371.0;  // Earth radius in km
+  const double R = 6371.2;  // Earth radius in km
 
   // Original box area
   double minLatRad1 = 10.0 * M_PI / 180.0;

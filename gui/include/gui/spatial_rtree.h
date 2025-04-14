@@ -166,7 +166,7 @@ public:
     double dLon = (maxLon - minLon) * M_PI / 180.0;
 
     // Earth's radius in desired units (kilometers)
-    const double R = 6371.0;  // Earth radius in km
+    const double R = 6371.2;  // Earth radius in km
 
     // Calculate area on a sphere (approximate)
     return R * R * dLon * (std::sin(maxLatRad) - std::sin(minLatRad));
