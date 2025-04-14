@@ -17,6 +17,21 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301,  USA.         *
  ***************************************************************************/
 
+/**
+ * @file spatial_rtree.h
+ * @brief R-tree spatial indexing implementation for geographic data
+ *
+ * This file provides a complete implementation of an R-tree spatial index
+ * optimized for latitude/longitude coordinates. The R-tree structure
+ * efficiently organizes spatial data for quick retrieval based on location,
+ * supporting operations like:
+ * - Spatial searching (find objects within a region)
+ * - Line intersection queries
+ * - Nearest neighbor searches
+ *
+ * The implementation uses hierarchical bounding boxes to organize spatial
+ * data, with specialized node splitting algorithms to maintain tree balance.
+ */
 #ifndef SPATIAL_RTREE_H
 #define SPATIAL_RTREE_H
 
@@ -134,27 +149,51 @@ public:
   }
 
   /**
-   * Calculates the area of this bounding box.
+   * Calculates the area of this bounding box in square kilometers.
+   *
+   * This method accounts for the Earth's curvature and the fact that
+   * longitude degrees vary in physical distance based on latitude.
+   * The calculation uses a spherical Earth model with radius 6371 km.
+   *
+   * @return Area in square kilometers, or 0 if the box is invalid
    */
   double Area() const {
     if (!IsValid()) return 0;
-    return (maxLat - minLat) * (maxLon - minLon);
+
+    // Convert to radians
+    double minLatRad = minLat * M_PI / 180.0;
+    double maxLatRad = maxLat * M_PI / 180.0;
+    double dLon = (maxLon - minLon) * M_PI / 180.0;
+
+    // Earth's radius in desired units (kilometers)
+    const double R = 6371.0;  // Earth radius in km
+
+    // Calculate area on a sphere (approximate)
+    return R * R * dLon * (std::sin(maxLatRad) - std::sin(minLatRad));
   }
 
   /**
-   * Returns the enlargement area if this box were to include the given box.
+   * Returns the enlargement area in square kilometers if this box were to
+   * include the given box.
+   *
+   * This method calculates how much additional area (in square kilometers)
+   * would be added to this bounding box if it were expanded to include the
+   * other box. Uses the same spherical Earth model as the Area() method.
+   *
+   * @param other The bounding box to potentially include
+   * @return The amount by which the area would increase in square kilometers
    */
   double EnlargementArea(const RTreeBBox& other) const {
     if (!IsValid()) return other.Area();
     if (!other.IsValid()) return 0;
 
-    double newMinLat = std::min(minLat, other.minLat);
-    double newMinLon = std::min(minLon, other.minLon);
-    double newMaxLat = std::max(maxLat, other.maxLat);
-    double newMaxLon = std::max(maxLon, other.maxLon);
+    // Create a new combined bounding box
+    RTreeBBox combinedBox(
+        std::min(minLat, other.minLat), std::min(minLon, other.minLon),
+        std::max(maxLat, other.maxLat), std::max(maxLon, other.maxLon));
 
-    double newArea = (newMaxLat - newMinLat) * (newMaxLon - newMinLon);
-    return newArea - Area();
+    // Calculate the difference between the combined area and this area
+    return combinedBox.Area() - Area();
   }
 
   // Minimum/maximum latitude and longitude.
@@ -250,21 +289,6 @@ public:
 
   /**
    * Gets the bounding box that contains all entries in this leaf node.
-   *
-   * @return The bounding box for this node
-   */
-  /**
-   * Gets the bounding box that contains all entries in this leaf node.
-   *
-   * @return The bounding box for this node
-   */
-  /**
-   * Gets the bounding box that contains all children of this internal node.
-   *
-   * @return The bounding box for this node
-   */
-  /**
-   * Gets the bounding box that contains all children of this internal node.
    *
    * @return The bounding box for this node
    */
