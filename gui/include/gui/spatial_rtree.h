@@ -171,17 +171,45 @@ public:
  */
 class RTreeNode {
 public:
+  /**
+   * Constructor for RTreeNode.
+   *
+   * @param isLeaf Indicates whether this node is a leaf node (true) or internal
+   * node (false)
+   */
   RTreeNode(bool isLeaf = false) : isLeaf(isLeaf) {}
+
+  /**
+   * Virtual destructor to ensure proper cleanup of derived classes.
+   */
   virtual ~RTreeNode() = default;
 
-  // Pure virtual methods to be implemented by derived classes
+  /**
+   * Gets the bounding box that contains all entries in this node.
+   *
+   * @return The bounding box for this node
+   */
   virtual RTreeBBox GetRTreeBBox() const = 0;
+
+  /**
+   * Searches this node (and potentially its children) for entries that
+   * intersect with the query box.
+   *
+   * @param queryBox The bounding box to search with
+   * @param results Vector to store indices of matching entries
+   */
   virtual void Search(const RTreeBBox& queryBox,
                       std::vector<size_t>& results) const = 0;
 
+  /**
+   * Checks if this node is a leaf node.
+   *
+   * @return True if this is a leaf node, false if it's an internal node
+   */
   bool IsLeaf() const { return isLeaf; }
 
 protected:
+  /** Flag indicating whether this is a leaf node */
   bool isLeaf;
 };
 
@@ -193,20 +221,62 @@ protected:
  */
 class RTreeLeafNode : public RTreeNode {
 public:
+  /**
+   * Structure to store leaf node entries.
+   * Each entry contains an index to the original data and its bounding box.
+   */
   struct Entry {
-    size_t index;  // Index of the object in the original data
-    RTreeBBox box;
+    size_t index;   //!< Index of the object in the original data
+    RTreeBBox box;  //!< Bounding box of the object
   };
 
+  /**
+   * Constructor for a leaf node.
+   * Initializes this node as a leaf in the R-tree.
+   */
   RTreeLeafNode() : RTreeNode(true) {}
 
+  /**
+   * Adds a single entry to this leaf node.
+   * Expands the node's bounding box to include the new entry.
+   *
+   * @param index Index of the object in the original data source
+   * @param box Bounding box of the object
+   */
   void AddEntry(size_t index, const RTreeBBox& box) {
     entries.push_back(Entry{index, box});
     nodeRTreeBBox.Expand(box);
   }
 
+  /**
+   * Gets the bounding box that contains all entries in this leaf node.
+   *
+   * @return The bounding box for this node
+   */
+  /**
+   * Gets the bounding box that contains all entries in this leaf node.
+   *
+   * @return The bounding box for this node
+   */
+  /**
+   * Gets the bounding box that contains all children of this internal node.
+   *
+   * @return The bounding box for this node
+   */
+  /**
+   * Gets the bounding box that contains all children of this internal node.
+   *
+   * @return The bounding box for this node
+   */
   RTreeBBox GetRTreeBBox() const override { return nodeRTreeBBox; }
 
+  /**
+   * Searches this leaf node for entries that intersect with the query box.
+   * Adds matching entry indices to the results vector.
+   *
+   * @param queryBox The bounding box to search with
+   * @param results Vector to store indices of matching entries
+   */
   void Search(const RTreeBBox& queryBox,
               std::vector<size_t>& results) const override {
     for (const auto& entry : entries) {
@@ -216,17 +286,34 @@ public:
     }
   }
 
+  /**
+   * Checks if this leaf node has reached its maximum capacity.
+   *
+   * @param maxEntries Maximum number of entries allowed in this node
+   * @return True if node is full, false otherwise
+   */
   bool IsFull(size_t maxEntries) const { return entries.size() >= maxEntries; }
 
+  /**
+   * Gets all entries stored in this leaf node.
+   *
+   * @return Const reference to the vector of entries
+   */
   const std::vector<Entry>& GetEntries() const { return entries; }
 
-  // Clear all entries
+  /**
+   * Removes all entries from this leaf node and resets its bounding box.
+   */
   void ClearEntries() {
     entries.clear();
     nodeRTreeBBox = RTreeBBox();
   }
 
-  // Add multiple entries at once
+  /**
+   * Adds multiple entries to this leaf node at once.
+   *
+   * @param newEntries Vector of entries to add
+   */
   void AddEntries(const std::vector<Entry>& newEntries) {
     for (const auto& entry : newEntries) {
       AddEntry(entry.index, entry.box);
@@ -246,15 +333,38 @@ private:
  */
 class RTreeInternalNode : public RTreeNode {
 public:
+  /**
+   * Constructor for an internal node.
+   * Initializes this node as an internal (non-leaf) node in the R-tree.
+   */
   RTreeInternalNode() : RTreeNode(false) {}
 
+  /**
+   * Adds a child node to this internal node.
+   * Takes ownership of the child node and expands this node's bounding box.
+   *
+   * @param child Unique pointer to the child node to add
+   */
   void AddChild(std::unique_ptr<RTreeNode> child) {
     nodeRTreeBBox.Expand(child->GetRTreeBBox());
     children.push_back(std::move(child));
   }
 
+  /**
+   * Gets the bounding box that contains all children of this internal node.
+   *
+   * @return The bounding box for this node
+   */
   RTreeBBox GetRTreeBBox() const override { return nodeRTreeBBox; }
 
+  /**
+   * Searches this internal node by delegating to all its children.
+   * Each child recursively searches for entries that intersect with the query
+   * box.
+   *
+   * @param queryBox The bounding box to search with
+   * @param results Vector to store indices of matching entries
+   */
   void Search(const RTreeBBox& queryBox,
               std::vector<size_t>& results) const override {
     for (const auto& child : children) {
@@ -262,8 +372,21 @@ public:
     }
   }
 
+  /**
+   * Checks if this internal node has reached its maximum capacity.
+   *
+   * @param maxEntries Maximum number of children allowed in this node
+   * @return True if node is full, false otherwise
+   */
   bool IsFull(size_t maxEntries) const { return children.size() >= maxEntries; }
 
+  /**
+   * Removes a child node at the specified index and returns ownership of it.
+   * Recalculates the bounding box after removal.
+   *
+   * @param index Index of the child to remove
+   * @return Unique pointer to the removed child, or nullptr if index is invalid
+   */
   std::unique_ptr<RTreeNode> RemoveChild(size_t index) {
     if (index >= children.size()) return nullptr;
 
@@ -280,18 +403,35 @@ public:
     return child;
   }
 
+  /**
+   * Gets mutable reference to all children of this internal node.
+   *
+   * @return Reference to the vector of child node pointers
+   */
   std::vector<std::unique_ptr<RTreeNode>>& GetChildren() { return children; }
 
+  /**
+   * Gets constant reference to all children of this internal node.
+   *
+   * @return Const reference to the vector of child node pointers
+   */
   const std::vector<std::unique_ptr<RTreeNode>>& GetChildren() const {
     return children;
   }
 
-  // Clear all children
+  /**
+   * Removes all children from this internal node and resets its bounding box.
+   */
   void ClearChildren() {
     children.clear();
     nodeRTreeBBox = RTreeBBox();
   }
 
+  /**
+   * Explicitly sets the bounding box for this internal node.
+   *
+   * @param bbox The new bounding box
+   */
   void SetBoundingBox(const RTreeBBox& bbox) { nodeRTreeBBox = bbox; }
 
 private:
@@ -323,15 +463,27 @@ public:
     root = std::make_unique<RTreeLeafNode>();
   }
 
+  /**
+   * Virtual destructor for the R-tree.
+   *
+   * Root and all children are automatically cleaned up by unique_ptr.
+   */
   virtual ~RTree() {
     // Root and all children are automatically cleaned up by unique_ptr.
     // Any additional cleanup can go here if needed.
   }
 
+  /**
+   * Helper struct for nearest-neighbor searches.
+   * Used to track the current nearest item during recursive searches.
+   */
   struct NearestItem {
-    size_t index;
-    double distance;
+    size_t index;     //!< Index of the nearest object found so far
+    double distance;  //!< Distance to the nearest object found so far
 
+    /**
+     * Default constructor initializes with maximum possible distance.
+     */
     NearestItem() : index(0), distance(std::numeric_limits<double>::max()) {}
   };
 
@@ -604,6 +756,15 @@ private:
   size_t maxEntries;
   size_t minEntries;
 
+  /**
+   * Internal recursive implementation of the Insert operation.
+   *
+   * @param nodePtr Current node to insert into
+   * @param index Index of the object in the original data source
+   * @param box Bounding box of the object
+   * @param level Current depth in the tree
+   * @return New node if split occurred, nullptr otherwise
+   */
   std::unique_ptr<RTreeNode> InsertInternal(RTreeNode* nodePtr, size_t index,
                                             const RTreeBBox& box, int level) {
     if (nodePtr->IsLeaf()) {
@@ -691,6 +852,8 @@ private:
 
   /**
    * Splits a leaf node when it exceeds capacity.
+   * Uses the quadratic split algorithm to distribute entries between original
+   * and new node.
    *
    * @param node The leaf node to split
    * @return A new leaf node containing some of the entries
@@ -790,6 +953,8 @@ private:
 
   /**
    * Splits an internal node when it exceeds capacity.
+   * Uses the quadratic split algorithm to distribute children between original
+   * and new node.
    *
    * @param node The internal node to split
    * @return A new internal node containing some of the children
@@ -898,6 +1063,7 @@ private:
   /**
    * Choose seed entries for node splitting using the quadratic method.
    *
+   * @tparam EntryType Type of entries (either RTreeLeafNode::Entry or similar)
    * @param entries Vector of entries to choose from
    * @param seed1 Output parameter for the first seed index
    * @param seed2 Output parameter for the second seed index
@@ -924,6 +1090,13 @@ private:
     }
   }
 
+  /**
+   * Choose seed nodes for internal node splitting using the quadratic method.
+   *
+   * @param entries Vector of node pointers to choose from
+   * @param seed1 Output parameter for the first seed index
+   * @param seed2 Output parameter for the second seed index
+   */
   void ChooseSeedsForNodes(
       const std::vector<std::unique_ptr<RTreeNode>>& entries, size_t& seed1,
       size_t& seed2) const {
@@ -948,6 +1121,7 @@ private:
 
   /**
    * Internal implementation of the Delete operation.
+   * Recursively searches for and removes the entry with the specified index.
    *
    * @param node Current node being processed (owned by caller)
    * @param index Index of the entry to delete
