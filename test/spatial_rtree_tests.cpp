@@ -344,6 +344,18 @@ TEST_F(RTreeTest, BBoxFromFeature) {
   EXPECT_DOUBLE_EQ(featureBox.maxLon, 20.0);
 }
 
+/**
+ * Tests basic insertion and search functionality of the RTree by verifying:
+ *
+ * 1. Creating and inserting boxes: Tests that boxes with different positions
+ *    and sizes can be inserted into the tree with unique indices.
+ * 2. Intersection search: Validates that a query box correctly returns
+ *    only the boxes that intersect with it.
+ * 3. Non-intersection cases: Confirms that a query in an empty region
+ *    returns an empty result set.
+ * 4. Point queries: Ensures that a zero-area box (point) correctly finds
+ *    all boxes that contain that point
+ */
 TEST_F(RTreeTest, RTreeInsertAndSearch) {
   // Insert some test boxes
   RTreeBBox box1(10.0, 10.0, 20.0, 20.0);
