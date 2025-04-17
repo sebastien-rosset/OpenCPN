@@ -104,6 +104,25 @@ include(GoogleTest)
 gtest_add_tests(TARGET tests)
 gtest_add_tests(TARGET buffer_tests)
 
+set(_RTREE_TEST_SRC spatial_rtree_tests.cpp ${CMAKE_SOURCE_DIR}/cli/api_shim.cpp)
+add_executable(rtree_tests ${_RTREE_TEST_SRC})
+target_link_libraries(
+  rtree_tests PRIVATE
+  ocpn::model-src
+  ocpn::gtest
+  ocpn::ShapefileCpp
+  win32_libs
+)
+target_include_directories(
+  rtree_tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/gui/include
+  ${CMAKE_SOURCE_DIR}/libs/ShapefileCpp/lib/include
+)
+target_compile_definitions(
+  rtree_tests PUBLIC TESTDATA="${CMAKE_CURRENT_LIST_DIR}/testdata"
+)
+gtest_add_tests(TARGET rtree_tests)
+
 if (LINUX AND NOT DEFINED ENV{FLATPAK_ID} AND NOT OCPN_DISTRO_BUILD)
   # We don't have a session bus available when testing flatpak
   # so these can just be run in native builds.

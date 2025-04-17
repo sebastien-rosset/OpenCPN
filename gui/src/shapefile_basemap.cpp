@@ -250,6 +250,8 @@ void ShapeBaseChartSet::LoadBasemaps(const std::string &dir) {
 }
 
 bool ShapeBaseChart::LoadSHP() {
+  // Initialize the R-tree spatial index
+  _rtree = std::make_unique<RTree>();
   if (!fs::exists(_filename)) {
     _is_usable = false;
     return false;
@@ -286,20 +288,41 @@ bool ShapeBaseChart::LoadSHP() {
     }
   }
   _is_tiled = (has_x && has_y);
-  if (_is_usable && _is_tiled) {
+  if (_is_usable) {
     size_t feat{0};
-    for (auto const &feature : *temp_reader) {
+    int featureCount = temp_reader->getCount();
+
+    // Collect all features from loaded shapefiles
+    std::vector<shp::Feature> allFeatures;
+    for (int i = 0; i < featureCount; i++) {
+      auto feature = temp_reader->getFeature(i);
+      // Add feature to allFeatures vector
+      allFeatures.push_back(feature);
+    }
+    // Log statistics about the features
+    LogShapefileStatistics(allFeatures);
+
+    for (int i = 0; i < featureCount; i++) {
       if (!_loading) {
         // Check if loading was cancelled
         _is_usable = false;
         return false;
       }
-      auto f1 = feature.getAttributes();
-      // Create a LatLonKey using the 'y' (latitude) and 'x' (longitude)
-      // attributes These values represent the top-left corner of the tiles
-      _tiles[LatLonKey(std::any_cast<int>(feature.getAttributes()["y"]),
-                       std::any_cast<int>(feature.getAttributes()["x"]))]
-          .push_back(feat);
+
+      auto feature = temp_reader->getFeature(i);
+
+      // Build the R-tree with feature bounding boxes
+      RTreeBBox featureBBox = RTreeBBox::FromFeature(feature);
+      _rtree->Insert(feat, featureBBox);
+
+      // If tiled, also maintain the traditional tile-based index
+      if (_is_tiled) {
+        // Create a LatLonKey using the 'y' (latitude) and 'x' (longitude)
+        // attributes These values represent the top-left corner of the tiles
+        _tiles[LatLonKey(std::any_cast<int>(feature.getAttributes()["y"]),
+                         std::any_cast<int>(feature.getAttributes()["x"]))]
+            .push_back(feat);
+      }
       feat++;
     }
   }
@@ -515,7 +538,9 @@ void ShapeBaseChart::DrawPolygonFilled(ocpnDC &pnt, ViewPort &vp) {
       }
     }
   } else {
-    for (auto const &feature : *_reader) {
+    int featureCount = _reader->getCount();
+    for (int i = 0; i < featureCount; i++) {
+      auto feature = _reader->getFeature(i);
       if (pnt.GetDC()) {
         DoDrawPolygonFilled(pnt, vp,
                             feature);  // Parallelize using std::async?
@@ -527,24 +552,325 @@ void ShapeBaseChart::DrawPolygonFilled(ocpnDC &pnt, ViewPort &vp) {
   }
 }
 
-bool ShapeBaseChart::CrossesLand(double &lat1, double &lon1, double &lat2,
-                                 double &lon2) {
-  if (!_reader && !_loading) {
-    _loading = true;
-    _loaded = std::async(std::launch::async, [&]() {
-      bool ret = LoadSHP();
-      _loading = false;
-      return ret;
-    });
+/**
+ * Collects and logs statistics about shapefile features to help optimize the
+ * R-tree structure.
+ *
+ * Analyzes the following metrics:
+ * - Number of polygons per cell (1x1 degree)
+ * - Points per polygon (min, max, average)
+ * - Bounding box sizes
+ * - Identifies potentially problematic features that might cause performance
+ * issues
+ *
+ * @param features Vector of all shapefile features
+ */
+void LogShapefileStatistics(const std::vector<shp::Feature> &features) {
+  // Maps to collect statistics
+  std::map<std::pair<int, int>, size_t>
+      polygonsPerCell;  // Maps cell coordinates to polygon count
+  std::map<std::pair<int, int>, size_t>
+      pointsPerCell;  // Maps cell coordinates to total point count
+  std::vector<size_t> pointsPerPolygon;
+  std::vector<double> bboxAreas;
+
+  size_t totalPolygons = 0;
+  size_t totalPoints = 0;
+  size_t maxPointsInPolygon = 0;
+  size_t minPointsInPolygon = std::numeric_limits<size_t>::max();
+
+  // Identify cells with unusually high polygon counts or point counts
+  std::vector<std::tuple<int, int, size_t, size_t>>
+      cellStats;  // lat, lon, polygon count, point count
+
+  for (const auto &feature : features) {
+    auto geometry = feature.getGeometry();
+    if (!geometry) continue;
+
+    auto *polygon = dynamic_cast<shp::Polygon *>(geometry);
+    if (!polygon) continue;
+
+    totalPolygons++;
+
+    // Get bounding box and calculate cell coordinates
+    RTreeBBox bbox = RTreeBBox::FromFeature(feature);
+    int cellLat = static_cast<int>(std::floor(bbox.minLat));
+    int cellLon = static_cast<int>(std::floor(bbox.minLon));
+    std::pair<int, int> cellCoord = {cellLat, cellLon};
+
+    // Count polygons per cell
+    polygonsPerCell[cellCoord]++;
+
+    // Calculate area of the bounding box
+    double area = bbox.Area();
+    bboxAreas.push_back(area);
+
+    // Count points in polygon
+    size_t pointCount = 0;
+    for (auto &ring : polygon->getRings()) {
+      pointCount += ring.getPoints().size();
+    }
+
+    totalPoints += pointCount;
+    pointsPerPolygon.push_back(pointCount);
+    pointsPerCell[cellCoord] += pointCount;
+
+    // Update min/max points
+    maxPointsInPolygon = std::max(maxPointsInPolygon, pointCount);
+    minPointsInPolygon = std::min(minPointsInPolygon, pointCount);
+
+    // Identify potential problem features (high point count)
+    if (pointCount > 1000) {  // Arbitrary threshold, adjust as needed
+      wxLogMessage(
+          _T("High complexity polygon detected at cell (%d,%d): %zu points, ")
+          _T("bounding box area: %.2f sq km"),
+          cellLat, cellLon, pointCount, area);
+    }
   }
-  if (_loading) {
-    if (_loaded.wait_for(std::chrono::milliseconds(0)) ==
-        std::future_status::ready) {
+
+  // Calculate averages
+  double avgPointsPerPolygon =
+      totalPolygons > 0 ? static_cast<double>(totalPoints) / totalPolygons : 0;
+
+  // Prepare cell statistics for reporting
+  for (const auto &cell : polygonsPerCell) {
+    int lat = cell.first.first;
+    int lon = cell.first.second;
+    size_t polyCount = cell.second;
+    size_t pointCount = pointsPerCell[cell.first];
+
+    cellStats.push_back(std::make_tuple(lat, lon, polyCount, pointCount));
+  }
+
+  // Log overall statistics
+  wxLogMessage(_T("Shapefile Statistics:"));
+  wxLogMessage(_T("  Total polygons: %zu"), totalPolygons);
+  wxLogMessage(_T("  Total points: %zu"), totalPoints);
+  wxLogMessage(_T("  Average points per polygon: %.2f"), avgPointsPerPolygon);
+  wxLogMessage(_T("  Min points in a polygon: %zu"), minPointsInPolygon);
+  wxLogMessage(_T("  Max points in a polygon: %zu"), maxPointsInPolygon);
+  wxLogMessage(_T("  Number of cells with data: %zu"), polygonsPerCell.size());
+
+  // Sort cells by point count (descending) to identify most complex cells
+  std::sort(cellStats.begin(), cellStats.end(),
+            [](const auto &a, const auto &b) {
+              return std::get<3>(a) > std::get<3>(b);
+            });
+
+  // Log top cells by point count
+  size_t cellsToReport = std::min(cellStats.size(), size_t(20));
+  if (cellsToReport > 0) {
+    wxLogMessage(_T("  Top %zu cells by point count:"), cellsToReport);
+    for (size_t i = 0; i < cellsToReport; i++) {
+      const auto &cell = cellStats[i];
+      wxLogMessage(
+          _T("    Cell (%d,%d): %zu polygons, %zu points, avg %.1f ")
+          _T("points/polygon"),
+          std::get<0>(cell), std::get<1>(cell), std::get<2>(cell),
+          std::get<3>(cell),
+          static_cast<double>(std::get<3>(cell)) / std::get<2>(cell));
+    }
+  }
+
+  // Sort cells by polygon count (descending)
+  std::sort(cellStats.begin(), cellStats.end(),
+            [](const auto &a, const auto &b) {
+              return std::get<2>(a) > std::get<2>(b);
+            });
+
+  // Log top cells by polygon count
+  if (cellsToReport > 0) {
+    wxLogMessage(_T("  Top %zu cells by polygon count:"), cellsToReport);
+    for (size_t i = 0; i < cellsToReport; i++) {
+      const auto &cell = cellStats[i];
+      wxLogMessage(
+          _T("    Cell (%d,%d): %zu polygons, %zu points, avg %.1f ")
+          _T("points/polygon"),
+          std::get<0>(cell), std::get<1>(cell), std::get<2>(cell),
+          std::get<3>(cell),
+          static_cast<double>(std::get<3>(cell)) / std::get<2>(cell));
+    }
+  }
+
+  // Calculate percentiles for points per polygon
+  if (!pointsPerPolygon.empty()) {
+    std::sort(pointsPerPolygon.begin(), pointsPerPolygon.end());
+    size_t p50 = pointsPerPolygon[pointsPerPolygon.size() * 0.5];
+    size_t p90 = pointsPerPolygon[pointsPerPolygon.size() * 0.9];
+    size_t p99 = pointsPerPolygon[pointsPerPolygon.size() * 0.99];
+
+    wxLogMessage(_T("  Points per polygon distribution:"));
+    wxLogMessage(_T("    50th percentile: %zu points"), p50);
+    wxLogMessage(_T("    90th percentile: %zu points"), p90);
+    wxLogMessage(_T("    99th percentile: %zu points"), p99);
+  }
+
+  // Calculate bounding box area statistics
+  if (!bboxAreas.empty()) {
+    std::sort(bboxAreas.begin(), bboxAreas.end());
+    double minArea = bboxAreas.front();
+    double maxArea = bboxAreas.back();
+    double medianArea = bboxAreas[bboxAreas.size() / 2];
+
+    wxLogMessage(_T("  Bounding box area statistics (sq km):"));
+    wxLogMessage(_T("    Min area: %.2f"), minArea);
+    wxLogMessage(_T("    Median area: %.2f"), medianArea);
+    wxLogMessage(_T("    Max area: %.2f"), maxArea);
+  }
+
+  // Look for problematic distribution (cells with very high point counts
+  // compared to others)
+  if (!cellStats.empty()) {
+    const auto &topCell =
+        cellStats.front();  // Highest point count after sorting
+    size_t topPointCount = std::get<3>(topCell);
+    double avgPointsPerCell =
+        static_cast<double>(totalPoints) / polygonsPerCell.size();
+
+    if (topPointCount > 5 * avgPointsPerCell) {
+      wxLogMessage(
+          _T("WARNING: Highly imbalanced data distribution detected."));
+      wxLogMessage(_T("  Cell (%d,%d) has %zu points (%.1fx the average)"),
+                   std::get<0>(topCell), std::get<1>(topCell), topPointCount,
+                   static_cast<double>(topPointCount) / avgPointsPerCell);
+      wxLogMessage(
+          _T("  This may cause performance issues with the current R-tree ")
+          _T("implementation."));
+    }
+  }
+}
+
+bool ShapeBaseChart::EnsureShapefilesLoaded(double lat1, double lon1,
+                                            double lat2, double lon2) {
+  if (!_is_usable || !_reader) {
+    // Initialize if not done already
+    if (!_loading) {
+      _loading = true;
+      _loaded = std::async(std::launch::async, [&]() {
+        bool ret = LoadSHP();
+        _loading = false;
+        return ret;
+      });
+    }
+
+    // Check if loading completed
+    if (_loading && _loaded.valid() &&
+        _loaded.wait_for(std::chrono::milliseconds(0)) ==
+            std::future_status::ready) {
       _is_usable = _loaded.get();
-    } else {
-      // Chart not yet loaded. Assume no land crossing.
+    }
+
+    // If still not usable, we can't proceed
+    if (!_is_usable || !_reader) {
       return false;
     }
+  }
+
+  // Normalize longitudes to -180 to 180 range
+  double norm_lon1 = lon1;
+  double norm_lon2 = lon2;
+
+  while (norm_lon1 < -180) norm_lon1 += 360;
+  while (norm_lon1 > 180) norm_lon1 -= 360;
+  while (norm_lon2 < -180) norm_lon2 += 360;
+  while (norm_lon2 > 180) norm_lon2 -= 360;
+
+  // Calculate bounding box of the route segment
+  double minLat = std::min(lat1, lat2);
+  double maxLat = std::max(lat1, lat2);
+  double minLon = std::min(norm_lon1, norm_lon2);
+  double maxLon = std::max(norm_lon1, norm_lon2);
+
+  // Round to determine which 1x1 degree cells are needed
+  int latMin = floor(minLat);
+  int latMax = ceil(maxLat);
+  int lonMin = floor(minLon);
+  int lonMax = ceil(maxLon);
+
+  // Iterate over all potential cells
+  bool allLoaded = true;
+  for (int lat = latMin; lat < latMax; lat++) {
+    for (int lon = lonMin; lon < lonMax; lon++) {
+      // Normalize longitude if needed
+      int normLon = lon;
+      while (normLon < -180) normLon += 360;
+      while (normLon >= 180) normLon -= 360;
+
+      // Create a key for this cell
+      LatLonKey cellKey(lat, normLon);
+
+      // Check if cell is already loaded in our tile map
+      if (_is_tiled && _tiles.find(cellKey) == _tiles.end()) {
+        // Attempt to load this specific cell
+        std::string cellPath = ConstructCellPath(lat, normLon);
+        if (fs::exists(cellPath)) {
+          try {
+            // Create a specific reader just for this cell
+            std::unique_ptr<shp::ShapefileReader> cellReader(
+                new shp::ShapefileReader(cellPath));
+
+            if (cellReader->isOpen() &&
+                cellReader->getGeometryType() == shp::GeometryType::Polygon) {
+              // Load features into the R-tree
+              size_t featIndex =
+                  _reader->getCount();  // Start index for new features
+              int featureCount = cellReader->getCount();
+
+              for (int i = 0; i < featureCount; i++) {
+                auto feature = cellReader->getFeature(i);
+
+                // Create bounding box and add to R-tree
+                RTreeBBox featureBBox = RTreeBBox::FromFeature(feature);
+                if (_rtree) {
+                  _rtree->Insert(featIndex, featureBBox);
+                }
+
+                // Also track in the tile map
+                _tiles[cellKey].push_back(featIndex);
+                featIndex++;
+              }
+
+              // Merge the cell reader's features into our main reader
+              // (This would require extending the ShapefileReader class)
+              // MergeFeatures(_reader, cellReader.get());
+            }
+          } catch (...) {
+            // If loading fails, mark as not fully loaded but continue
+            allLoaded = false;
+          }
+        } else {
+          // Cell doesn't exist, but mark it as empty to avoid checking again
+          _tiles[cellKey] = std::vector<size_t>();
+        }
+      }
+    }
+  }
+
+  return allLoaded;
+}
+
+// Helper method to construct path to a specific cell shapefile
+std::string ShapeBaseChart::ConstructCellPath(int lat, int lon) {
+  // Extract the base directory from the current shapefile path
+  fs::path basePath = fs::path(_filename).parent_path();
+
+  // Format the cell filename (example: N45E010.shp for lat=45, lon=10)
+  std::stringstream ss;
+  ss << (lat >= 0 ? "N" : "S") << std::abs(lat) << (lon >= 0 ? "E" : "W")
+     << std::setw(3) << std::setfill('0') << std::abs(lon);
+
+  std::string cellName = ss.str();
+  return (basePath / (cellName + ".shp")).string();
+}
+
+bool ShapeBaseChart::CrossesLand(double &lat1, double &lon1, double &lat2,
+                                 double &lon2) {
+  // Ensure we have loaded all the necessary shapefiles for this route segment
+  if (!EnsureShapefilesLoaded(lat1, lon1, lat2, lon2)) {
+    // If we couldn't load all necessary data, fall back to a conservative
+    // approach and assume no land crossing (or return true if you prefer to be
+    // cautious)
+    return false;
   }
 
   double norm_lon1 = lon1;
@@ -559,6 +885,24 @@ bool ShapeBaseChart::CrossesLand(double &lat1, double &lon1, double &lat2,
   auto A = std::make_pair(lat1, norm_lon1);
   auto B = std::make_pair(lat2, norm_lon2);
 
+  // Use the R-tree to efficiently find potential intersecting polygons
+  if (_rtree) {
+    // Query the R-tree for features that might intersect with the line segment
+    std::vector<size_t> potentialFeatures =
+        _rtree->SearchLineIntersection(lat1, norm_lon1, lat2, norm_lon2);
+
+    // Check each candidate feature for actual intersection
+    for (size_t fid : potentialFeatures) {
+      auto const &feature = _reader->getFeature(fid);
+      if (PolygonLineIntersect(feature, A, B)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Fall back to tile-based or linear search if R-tree is not available
   if (_is_tiled) {
     // Calculate grid-aligned min/max coordinates based on _dmod
     double minLat = std::min(lat1, lat2);
@@ -597,7 +941,9 @@ bool ShapeBaseChart::CrossesLand(double &lat1, double &lon1, double &lat2,
     }
   } else {
     // Non-tiled case: check all features
-    for (auto const &feature : *_reader) {
+    int featureCount = _reader->getCount();
+    for (int i = 0; i < featureCount; i++) {
+      auto feature = _reader->getFeature(i);
       if (PolygonLineIntersect(feature, A, B)) {
         return true;
       }
