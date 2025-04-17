@@ -427,9 +427,10 @@ TEST_F(RTreeTest, RTreeSearchLineIntersection) {
 }
 
 /**
- * Tests the RTree's ability to handle boxes with high coordinate values by
+ * Tests the RTree's ability to handle boxes with invalid coordinate values by
  * verifying:
- * - Boxes with coordinates near the maximum range can be inserted and found
+ * - Boxes with coordinates above the maximum latitude range can be inserted and
+ * found
  * - Adding multiple boxes (potentially triggering splits) doesn't affect
  * findability
  * - Boxes in different coordinate ranges work correctly together
