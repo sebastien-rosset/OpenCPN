@@ -548,11 +548,29 @@ public:
   /**
    * Searches for objects that might intersect with a line segment.
    *
-   * @param lat1 Latitude of the first point
+   * This method performs a first-pass spatial filter by creating a bounding box
+   * around the line segment and returning objects whose bounding boxes
+   * intersect with it. Note that this is a broad-phase filter only - it returns
+   * candidates that *might* intersect with the line, but additional precise
+   * geometric testing is required to confirm actual intersections.
+   *
+   * The function guarantees:
+   *   - All objects that DO intersect the line will be included in results
+   *   - Some objects that DON'T intersect may also be included (false
+   * positives)
+   *   - No actual line-object intersection tests are performed (only box-box
+   * tests)
+   *
+   * This is an optimization technique that significantly reduces the number of
+   * expensive geometric intersection tests needed by filtering out objects that
+   * definitely don't intersect.
+   *
+   * @param lat1 Latitude of the first point of the line segment
    * @param lon1 Longitude of the first point
    * @param lat2 Latitude of the second point
    * @param lon2 Longitude of the second point
-   * @return Vector of indices of objects that might intersect with the line
+   * @return Vector of indices of candidate objects whose bounding boxes
+   *         intersect with the line segment's bounding box
    */
   std::vector<size_t> SearchLineIntersection(double lat1, double lon1,
                                              double lat2, double lon2) const {

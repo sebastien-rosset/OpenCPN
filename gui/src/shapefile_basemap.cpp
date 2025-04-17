@@ -291,6 +291,17 @@ bool ShapeBaseChart::LoadSHP() {
   if (_is_usable) {
     size_t feat{0};
     int featureCount = temp_reader->getCount();
+
+    // Collect all features from loaded shapefiles
+    std::vector<shp::Feature> allFeatures;
+    for (int i = 0; i < featureCount; i++) {
+      auto feature = temp_reader->getFeature(i);
+      // Add feature to allFeatures vector
+      allFeatures.push_back(feature);
+    }
+    // Log statistics about the features
+    LogShapefileStatistics(allFeatures);
+
     for (int i = 0; i < featureCount; i++) {
       if (!_loading) {
         // Check if loading was cancelled
@@ -537,6 +548,194 @@ void ShapeBaseChart::DrawPolygonFilled(ocpnDC &pnt, ViewPort &vp) {
         DoDrawPolygonFilledGL(pnt, vp,
                               feature);  // Parallelize using std::async?
       }
+    }
+  }
+}
+
+/**
+ * Collects and logs statistics about shapefile features to help optimize the
+ * R-tree structure.
+ *
+ * Analyzes the following metrics:
+ * - Number of polygons per cell (1x1 degree)
+ * - Points per polygon (min, max, average)
+ * - Bounding box sizes
+ * - Identifies potentially problematic features that might cause performance
+ * issues
+ *
+ * @param features Vector of all shapefile features
+ */
+void LogShapefileStatistics(const std::vector<shp::Feature> &features) {
+  // Maps to collect statistics
+  std::map<std::pair<int, int>, size_t>
+      polygonsPerCell;  // Maps cell coordinates to polygon count
+  std::map<std::pair<int, int>, size_t>
+      pointsPerCell;  // Maps cell coordinates to total point count
+  std::vector<size_t> pointsPerPolygon;
+  std::vector<double> bboxAreas;
+
+  size_t totalPolygons = 0;
+  size_t totalPoints = 0;
+  size_t maxPointsInPolygon = 0;
+  size_t minPointsInPolygon = std::numeric_limits<size_t>::max();
+
+  // Identify cells with unusually high polygon counts or point counts
+  std::vector<std::tuple<int, int, size_t, size_t>>
+      cellStats;  // lat, lon, polygon count, point count
+
+  for (const auto &feature : features) {
+    auto geometry = feature.getGeometry();
+    if (!geometry) continue;
+
+    auto *polygon = dynamic_cast<shp::Polygon *>(geometry);
+    if (!polygon) continue;
+
+    totalPolygons++;
+
+    // Get bounding box and calculate cell coordinates
+    RTreeBBox bbox = RTreeBBox::FromFeature(feature);
+    int cellLat = static_cast<int>(std::floor(bbox.minLat));
+    int cellLon = static_cast<int>(std::floor(bbox.minLon));
+    std::pair<int, int> cellCoord = {cellLat, cellLon};
+
+    // Count polygons per cell
+    polygonsPerCell[cellCoord]++;
+
+    // Calculate area of the bounding box
+    double area = bbox.Area();
+    bboxAreas.push_back(area);
+
+    // Count points in polygon
+    size_t pointCount = 0;
+    for (auto &ring : polygon->getRings()) {
+      pointCount += ring.getPoints().size();
+    }
+
+    totalPoints += pointCount;
+    pointsPerPolygon.push_back(pointCount);
+    pointsPerCell[cellCoord] += pointCount;
+
+    // Update min/max points
+    maxPointsInPolygon = std::max(maxPointsInPolygon, pointCount);
+    minPointsInPolygon = std::min(minPointsInPolygon, pointCount);
+
+    // Identify potential problem features (high point count)
+    if (pointCount > 1000) {  // Arbitrary threshold, adjust as needed
+      wxLogMessage(
+          _T("High complexity polygon detected at cell (%d,%d): %zu points, ")
+          _T("bounding box area: %.2f sq km"),
+          cellLat, cellLon, pointCount, area);
+    }
+  }
+
+  // Calculate averages
+  double avgPointsPerPolygon =
+      totalPolygons > 0 ? static_cast<double>(totalPoints) / totalPolygons : 0;
+
+  // Prepare cell statistics for reporting
+  for (const auto &cell : polygonsPerCell) {
+    int lat = cell.first.first;
+    int lon = cell.first.second;
+    size_t polyCount = cell.second;
+    size_t pointCount = pointsPerCell[cell.first];
+
+    cellStats.push_back(std::make_tuple(lat, lon, polyCount, pointCount));
+  }
+
+  // Log overall statistics
+  wxLogMessage(_T("Shapefile Statistics:"));
+  wxLogMessage(_T("  Total polygons: %zu"), totalPolygons);
+  wxLogMessage(_T("  Total points: %zu"), totalPoints);
+  wxLogMessage(_T("  Average points per polygon: %.2f"), avgPointsPerPolygon);
+  wxLogMessage(_T("  Min points in a polygon: %zu"), minPointsInPolygon);
+  wxLogMessage(_T("  Max points in a polygon: %zu"), maxPointsInPolygon);
+  wxLogMessage(_T("  Number of cells with data: %zu"), polygonsPerCell.size());
+
+  // Sort cells by point count (descending) to identify most complex cells
+  std::sort(cellStats.begin(), cellStats.end(),
+            [](const auto &a, const auto &b) {
+              return std::get<3>(a) > std::get<3>(b);
+            });
+
+  // Log top cells by point count
+  size_t cellsToReport = std::min(cellStats.size(), size_t(20));
+  if (cellsToReport > 0) {
+    wxLogMessage(_T("  Top %zu cells by point count:"), cellsToReport);
+    for (size_t i = 0; i < cellsToReport; i++) {
+      const auto &cell = cellStats[i];
+      wxLogMessage(
+          _T("    Cell (%d,%d): %zu polygons, %zu points, avg %.1f ")
+          _T("points/polygon"),
+          std::get<0>(cell), std::get<1>(cell), std::get<2>(cell),
+          std::get<3>(cell),
+          static_cast<double>(std::get<3>(cell)) / std::get<2>(cell));
+    }
+  }
+
+  // Sort cells by polygon count (descending)
+  std::sort(cellStats.begin(), cellStats.end(),
+            [](const auto &a, const auto &b) {
+              return std::get<2>(a) > std::get<2>(b);
+            });
+
+  // Log top cells by polygon count
+  if (cellsToReport > 0) {
+    wxLogMessage(_T("  Top %zu cells by polygon count:"), cellsToReport);
+    for (size_t i = 0; i < cellsToReport; i++) {
+      const auto &cell = cellStats[i];
+      wxLogMessage(
+          _T("    Cell (%d,%d): %zu polygons, %zu points, avg %.1f ")
+          _T("points/polygon"),
+          std::get<0>(cell), std::get<1>(cell), std::get<2>(cell),
+          std::get<3>(cell),
+          static_cast<double>(std::get<3>(cell)) / std::get<2>(cell));
+    }
+  }
+
+  // Calculate percentiles for points per polygon
+  if (!pointsPerPolygon.empty()) {
+    std::sort(pointsPerPolygon.begin(), pointsPerPolygon.end());
+    size_t p50 = pointsPerPolygon[pointsPerPolygon.size() * 0.5];
+    size_t p90 = pointsPerPolygon[pointsPerPolygon.size() * 0.9];
+    size_t p99 = pointsPerPolygon[pointsPerPolygon.size() * 0.99];
+
+    wxLogMessage(_T("  Points per polygon distribution:"));
+    wxLogMessage(_T("    50th percentile: %zu points"), p50);
+    wxLogMessage(_T("    90th percentile: %zu points"), p90);
+    wxLogMessage(_T("    99th percentile: %zu points"), p99);
+  }
+
+  // Calculate bounding box area statistics
+  if (!bboxAreas.empty()) {
+    std::sort(bboxAreas.begin(), bboxAreas.end());
+    double minArea = bboxAreas.front();
+    double maxArea = bboxAreas.back();
+    double medianArea = bboxAreas[bboxAreas.size() / 2];
+
+    wxLogMessage(_T("  Bounding box area statistics (sq km):"));
+    wxLogMessage(_T("    Min area: %.2f"), minArea);
+    wxLogMessage(_T("    Median area: %.2f"), medianArea);
+    wxLogMessage(_T("    Max area: %.2f"), maxArea);
+  }
+
+  // Look for problematic distribution (cells with very high point counts
+  // compared to others)
+  if (!cellStats.empty()) {
+    const auto &topCell =
+        cellStats.front();  // Highest point count after sorting
+    size_t topPointCount = std::get<3>(topCell);
+    double avgPointsPerCell =
+        static_cast<double>(totalPoints) / polygonsPerCell.size();
+
+    if (topPointCount > 5 * avgPointsPerCell) {
+      wxLogMessage(
+          _T("WARNING: Highly imbalanced data distribution detected."));
+      wxLogMessage(_T("  Cell (%d,%d) has %zu points (%.1fx the average)"),
+                   std::get<0>(topCell), std::get<1>(topCell), topPointCount,
+                   static_cast<double>(topPointCount) / avgPointsPerCell);
+      wxLogMessage(
+          _T("  This may cause performance issues with the current R-tree ")
+          _T("implementation."));
     }
   }
 }
