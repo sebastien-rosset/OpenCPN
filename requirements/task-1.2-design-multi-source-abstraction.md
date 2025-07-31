@@ -16,7 +16,7 @@ Design a unified abstraction layer that can extract and represent spatial featur
 - Handle feature metadata and attributes consistently across different source formats
 - Support hierarchical feature relationships (e.g., land/lake/island from GSHHS, chart object classes from S-57)
 
-**Route Safety Configuration - S-57 ENC Object Mappings**
+#### Route Safety Configuration - S-57 ENC Object Mappings
 
 We may want to extract the following ENC features:
 
