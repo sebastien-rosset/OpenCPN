@@ -569,32 +569,10 @@ private:
         // METHOD 3: PROXIMITY TO WATER DETECTION (requires additional context)
         // This would need access to water/land classification from the geometry
         // For now, use conservative approach based on size
-        
-        // METHOD 4: USER CONFIGURATION - Allow users to define their sailing areas
-        if (IsUserDefinedCoastalArea(bounds)) {
-            return true;
-        }
-        
+                
         // DEFAULT: Use fine subdivision for any reasonably small area
         // Better to over-subdivide than under-subdivide for navigation safety
         return bboxArea < 0.5;  // Areas smaller than ~0.7° × 0.7° get fine subdivision
-    }
-    
-    // USER-CONFIGURABLE COASTAL AREAS: Allow sailors to define their regions
-    static bool IsUserDefinedCoastalArea(const LLBBox& bounds) {
-        // TODO: Load from user configuration file or database
-        // Users can define their frequent sailing areas for optimal performance
-        // Example config format:
-        // {
-        //   "my_sailing_areas": [
-        //     {"name": "San Francisco Bay", "bounds": [37.4, -122.6, 38.0, -122.0]},
-        //     {"name": "Puget Sound", "bounds": [47.0, -123.0, 48.5, -122.0]},
-        //     {"name": "Mediterranean", "bounds": [30.0, -6.0, 46.0, 36.0]}
-        //   ]
-        // }
-        
-        // For now, return false - will be implemented in user configuration system
-        return false;
     }
     
     // GEOMETRIC COMPLEXITY METRICS
