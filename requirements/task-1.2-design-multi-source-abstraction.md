@@ -889,7 +889,7 @@ Based on Task 1.1 analysis, the abstraction layer must integrate carefully with 
 
 #### 1. Backward Compatibility Strategy
 
-**Maintain Current API**: The existing `PlugIn_GSHHS_CrossesLand()` function must continue to work unchanged. The new system will operate as a high-performance backend while preserving the same interface.
+**Maintain Current API**: The existing `PlugIn_GSHHS_CrossesLand()` function must continue to work unchanged for GSHHS data.
 
 ```cpp
 // Existing API preserved
@@ -901,6 +901,8 @@ extern "C" bool PlugIn_GSHHS_CrossesLand(double lat1, double lon1,
 ```
 
 **Gradual Migration Path**:
+
+A new API with a high-performance backend will be implemented.
 
 - Phase 1: New system operates alongside existing GSHHS system
 - Phase 2: Plugins can opt-in to enhanced spatial API
