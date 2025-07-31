@@ -7,6 +7,453 @@
 
 Design a unified abstraction layer that can extract and represent spatial features from any available data source in a user's OpenCPN installation, enabling consistent spatial indexing regardless of the underlying data format.
 
+**EXPANDED SCOPE**: Beyond simple intersection testing, the system must support:
+
+1. **Path Planning**: Calculate valid routes between two points that avoid land/obstacles
+2. **Route Validation**: Verify if existing routes cross prohibited areas  
+3. **Algorithmic Optimization**: Explore mathematical approaches beyond line intersection for optimal performance
+
+## Navigation Algorithm Requirements
+
+### Core Navigation Functions
+
+#### 1. Path Planning Functions
+
+- `FindSafePath(start, end, constraints)` - Calculate obstacle-avoiding route
+- `FindShortestSafePath(start, end)` - Optimal distance while avoiding land
+- `FindMultiplePathOptions(start, end, count)` - Generate alternative routes
+- `ValidateWaypoints(waypoints[])` - Check if route waypoints are navigable
+
+#### 2. Route Validation Functions
+
+- `DoesRouteCrossLand(waypoints[])` - Comprehensive route analysis
+- `FindRouteViolations(route, constraints)` - Identify specific problem areas
+- `GetSafetyMargin(route, distance)` - Check clearance from obstacles
+- `ValidateRouteCompliance(route, regulations)` - Check against traffic rules
+
+#### 3. Dynamic Obstacle Avoidance
+
+- `GetObstaclesNearPath(route, buffer)` - Find hazards along planned route
+- `RecalculateRouteAroundObstacle(route, obstacle)` - Dynamic re-routing
+- `GetAlternativePathSegment(start, end, blocked_area)` - Local path correction
+
+### Performance Requirements vs. Algorithmic Approaches
+
+**CRITICAL QUESTION**: Is line intersection the optimal approach for these navigation functions?
+
+#### Current Line Intersection Approach
+
+- **Strengths**: Simple, works with existing data structures, mathematically well-understood
+- **Weaknesses**: O(n) per query, doesn't provide path planning capabilities, limited to boolean yes/no answers
+- **Best For**: Simple "does route cross land" validation
+
+#### Alternative Mathematical Approaches
+
+##### 1. **Distance Field / Signed Distance Function (SDF) Approach**
+
+```cpp
+// PREPROCESSED DISTANCE FIELD: Convert polygons to distance grid
+// - Preprocessing: Heavy (minutes), Query: Ultra-fast (microseconds)
+// - Memory: High (raster grid), Accuracy: Configurable by grid resolution
+class DistanceFieldApproach {
+public:
+    // PREPROCESSING: Convert coastline polygons to distance field (one-time cost)
+    void PreprocessCoastlineToDistanceField(const std::vector<ICoastlineGeometry*>& coastlines,
+                                          double resolution_degrees = 0.001) {
+        // Create raster grid where each cell contains distance to nearest land
+        // Positive = water, Negative = land, Zero = coastline
+        // Grid resolution determines accuracy vs. memory tradeoff
+    }
+    
+    // ULTRA-FAST QUERIES: O(1) lookups instead of O(n) polygon intersection
+    double GetDistanceToLand(double lat, double lon) {
+        // Simple grid lookup - microsecond performance
+        return SampleDistanceField(lat, lon);
+    }
+    
+    // PATH PLANNING: Natural for navigation algorithms
+    std::vector<wxRealPoint> FindSafePath(double start_lat, double start_lon,
+                                         double end_lat, double end_lon,
+                                         double safety_margin_nm = 0.1) {
+        // Use A* or other pathfinding on distance field
+        // Safety margin ensures path stays away from coastline
+        return AStarPathfinding(start_lat, start_lon, end_lat, end_lon, safety_margin_nm);
+    }
+    
+    // ROUTE VALIDATION: Check entire route in single pass
+    bool ValidateRoute(const std::vector<wxRealPoint>& waypoints, double safety_margin) {
+        for (const auto& point : waypoints) {
+            if (GetDistanceToLand(point.y, point.x) < safety_margin) {
+                return false;  // Route too close to land
+            }
+        }
+        return true;
+    }
+};
+```
+
+##### 2. **Visibility Graph / Navigation Mesh Approach**
+
+```cpp
+// PREPROCESSED NAVIGATION GRAPH: Convert obstacles to navigation network
+// - Preprocessing: Moderate, Query: Fast (graph search), Path Planning: Natural
+class NavigationGraphApproach {
+public:
+    struct NavigationNode {
+        wxRealPoint position;
+        std::vector<size_t> connections;  // Adjacent navigable nodes
+        double clearance;                 // Distance to nearest obstacle
+    };
+    
+    // PREPROCESSING: Build navigation graph from coastline data
+    void PreprocessCoastlineToNavigationGraph(const std::vector<ICoastlineGeometry*>& coastlines) {
+        // 1. Extract coastline vertices as potential nodes
+        // 2. Connect nodes that have clear line-of-sight (no land intersection)
+        // 3. Add additional nodes for channel navigation, harbor approaches
+        // 4. Store clearance information for safety margin calculations
+    }
+    
+    // PATH PLANNING: Natural graph search algorithms
+    std::vector<wxRealPoint> FindSafePath(double start_lat, double start_lon,
+                                         double end_lat, double end_lon) {
+        // 1. Find nearest navigation nodes to start/end points
+        // 2. Use Dijkstra or A* to find optimal path through graph
+        // 3. Smooth path for natural navigation curves
+        return DijkstraPathfinding(start_lat, start_lon, end_lat, end_lon);
+    }
+    
+    // MULTIPLE PATH OPTIONS: Easy with graph representation
+    std::vector<std::vector<wxRealPoint>> FindAlternativePaths(double start_lat, double start_lon,
+                                                              double end_lat, double end_lon,
+                                                              size_t num_alternatives = 3) {
+        // Use k-shortest paths algorithm on navigation graph
+        return KShortestPaths(start_lat, start_lon, end_lat, end_lon, num_alternatives);
+    }
+    
+private:
+    std::vector<NavigationNode> m_navigationNodes;
+    // Spatial index for fast nearest-node queries
+    RTree<size_t> m_nodeIndex;
+};
+```
+
+##### 3. **Hierarchical Pathfinding Approach**
+
+```cpp
+// MULTI-SCALE NAVIGATION: Combine coarse and fine pathfinding
+// - Ocean-scale routing + detailed harbor navigation
+class HierarchicalNavigationApproach {
+public:
+    // PREPROCESSING: Build multi-scale navigation hierarchy
+    void PreprocessHierarchicalNavigation() {
+        // Level 1: Ocean-scale navigation (100km+ distances)
+        BuildOceanScaleGraph();      // Major shipping lanes, strait passages
+        
+        // Level 2: Regional navigation (10-100km distances)  
+        BuildRegionalGraph();        // Coastal approaches, archipelago navigation
+        
+        // Level 3: Harbor navigation (1-10km distances)
+        BuildHarborGraph();          // Channel navigation, harbor approaches
+        
+        // Level 4: Precision navigation (<1km distances)
+        BuildPrecisionGraph();       // Marina approaches, anchorage areas
+    }
+    
+    // ADAPTIVE PATH PLANNING: Select appropriate scale based on distance
+    std::vector<wxRealPoint> FindSafePath(double start_lat, double start_lon,
+                                         double end_lat, double end_lon) {
+        double distance = CalculateDistance(start_lat, start_lon, end_lat, end_lon);
+        
+        if (distance > 100000) {  // >100km - use ocean-scale planning
+            return FindOceanScalePath(start_lat, start_lon, end_lat, end_lon);
+        } else if (distance > 10000) {  // 10-100km - use regional planning
+            return FindRegionalPath(start_lat, start_lon, end_lat, end_lon);
+        } else {  // <10km - use detailed harbor navigation
+            return FindHarborPath(start_lat, start_lon, end_lat, end_lon);
+        }
+    }
+    
+private:
+    NavigationGraphApproach m_oceanGraph;    // Coarse, global navigation
+    NavigationGraphApproach m_regionalGraph; // Medium detail
+    NavigationGraphApproach m_harborGraph;   // Fine detail  
+    DistanceFieldApproach m_precisionField;  // Ultra-fine detail
+};
+```
+
+#### 4. **Hybrid Approach: Best of All Worlds**
+
+```cpp
+// OPTIMAL PERFORMANCE STRATEGY: Combine multiple algorithms based on use case
+class HybridNavigationSystem {
+public:
+    // PREPROCESSING: Build all data structures for different use cases
+    void PreprocessNavigationData(const std::vector<ICoastlineGeometry*>& coastlines) {
+        // For ultra-fast point queries: Distance field
+        m_distanceField.PreprocessCoastlineToDistanceField(coastlines, 0.001);
+        
+        // For path planning: Navigation graph  
+        m_navigationGraph.PreprocessCoastlineToNavigationGraph(coastlines);
+        
+        // For legacy compatibility: R-tree spatial index
+        m_spatialIndex.IndexExistingDataSources();
+        
+        // For hierarchical navigation: Multi-scale graphs
+        m_hierarchicalNav.PreprocessHierarchicalNavigation();
+    }
+    
+    // ADAPTIVE ALGORITHM SELECTION: Choose optimal approach based on query type
+    
+    // Point-in-polygon queries: Use distance field (fastest)
+    bool IsPointInWater(double lat, double lon, double safety_margin = 0) {
+        return m_distanceField.GetDistanceToLand(lat, lon) > safety_margin;
+    }
+    
+    // Path planning queries: Use navigation graph or hierarchical approach
+    std::vector<wxRealPoint> FindSafePath(double start_lat, double start_lon,
+                                         double end_lat, double end_lon) {
+        double distance = CalculateDistance(start_lat, start_lon, end_lat, end_lon);
+        
+        if (distance > 50000) {  // Long distance - use hierarchical
+            return m_hierarchicalNav.FindSafePath(start_lat, start_lon, end_lat, end_lon);
+        } else {  // Short distance - use navigation graph
+            return m_navigationGraph.FindSafePath(start_lat, start_lon, end_lat, end_lon);
+        }
+    }
+    
+    // Line intersection queries: Use R-tree for legacy compatibility
+    bool DoesSegmentCrossLand(double lat1, double lon1, double lat2, double lon2) {
+        return m_spatialIndex.FastCrossesLand(lat1, lon1, lat2, lon2);
+    }
+    
+    // Route validation: Use distance field for speed
+    bool ValidateRoute(const std::vector<wxRealPoint>& waypoints, double safety_margin) {
+        return m_distanceField.ValidateRoute(waypoints, safety_margin);
+    }
+    
+private:
+    DistanceFieldApproach m_distanceField;           // O(1) point queries
+    NavigationGraphApproach m_navigationGraph;       // Path planning
+    HierarchicalNavigationApproach m_hierarchicalNav; // Multi-scale navigation
+    ZeroCopyCoastlineSpatialIndex m_spatialIndex;    // Legacy compatibility
+};
+```
+
+### Algorithmic Approach Comparison
+
+#### Performance Characteristics
+
+| Approach | Preprocessing | Memory Usage | Point Query | Path Planning | Route Validation | Best Use Case |
+|----------|---------------|--------------|-------------|---------------|------------------|---------------|
+| **Line Intersection** | Minimal | Low | O(n) | Not supported | O(n×m) | Legacy compatibility |
+| **Distance Field** | Heavy | High | **O(1)** | **O(log n)** | **O(m)** | Point queries, fast validation |
+| **Navigation Graph** | Moderate | Medium | O(log n) | **O(log n)** | O(m×log n) | Path planning |
+| **Hierarchical** | Heavy | Medium-High | O(log n) | **O(log n)** | O(m×log n) | Multi-scale navigation |
+| **Hybrid** | Very Heavy | High | **O(1)** | **O(log n)** | **O(m)** | Production systems |
+
+*Where n = number of polygon vertices, m = number of waypoints*
+
+#### Memory vs. Performance Tradeoffs
+
+```cpp
+// MEMORY USAGE ANALYSIS for different approaches with SF Bay area data
+class PerformanceAnalysis {
+public:
+    static void AnalyzeMemoryRequirements() {
+        // Example: San Francisco Bay detailed coastline data
+        size_t vertices = 5000000;  // 5M vertices in OSMSHP Pacific coast
+        double area_degrees = 1.0;  // 1° × 1° coverage area
+        
+        // APPROACH 1: Line Intersection (Current)
+        size_t line_intersection_memory = vertices * sizeof(wxRealPoint);  // ~80MB
+        
+        // APPROACH 2: Distance Field 
+        double resolution = 0.001;  // 1000×1000 grid for 1° area
+        size_t grid_cells = (1.0/resolution) * (1.0/resolution);  // 1M cells
+        size_t distance_field_memory = grid_cells * sizeof(float);  // ~4MB per 1° area
+        
+        // APPROACH 3: Navigation Graph
+        size_t nav_nodes = vertices / 100;  // ~1% of vertices become nodes
+        size_t connections_per_node = 6;    // Average connectivity
+        size_t nav_graph_memory = nav_nodes * (sizeof(NavigationNode) + 
+                                              connections_per_node * sizeof(size_t));  // ~2MB
+        
+        // APPROACH 4: Hybrid System
+        size_t hybrid_memory = line_intersection_memory + distance_field_memory + 
+                              nav_graph_memory;  // ~86MB total
+        
+        // PERFORMANCE COMPARISON (SF Bay coastal navigation query)
+        // Line intersection: 100-1000ms (unacceptable)
+        // Distance field: 0.001ms (ultra-fast)  
+        // Navigation graph: 1-10ms (fast)
+        // Hybrid: 0.001ms (ultra-fast with full capabilities)
+    }
+    
+    // PREPROCESSING TIME ANALYSIS
+    static void AnalyzePreprocessingRequirements() {
+        // Line intersection: 0ms (no preprocessing)
+        // Distance field: 30-300 seconds (rasterization of complex polygons)
+        // Navigation graph: 5-30 seconds (vertex extraction + connectivity)  
+        // Hierarchical: 60-600 seconds (multi-scale graph construction)
+        // Hybrid: 90-900 seconds (all algorithms combined)
+        
+        // PRACTICAL CONSIDERATION: Preprocessing can be done offline
+        // - At chart loading time (acceptable 10-60 second delay)
+        // - Pre-computed during OpenCPN installation 
+        // - Cached and reused across sessions
+    }
+};
+```
+
+#### Recommended Implementation Strategy
+
+**PHASE 1: Enhanced R-tree with Distance Field Acceleration**
+
+```cpp
+// IMMEDIATE PERFORMANCE IMPROVEMENT: Add distance field for point queries
+class Phase1Implementation {
+public:
+    // Keep existing R-tree for compatibility, add distance field for speed
+    bool FastCrossesLand(double lat1, double lon1, double lat2, double lon2) {
+        // STAGE 0: Ultra-fast endpoint checks using distance field
+        if (m_distanceField.GetDistanceToLand(lat1, lon1) < 0 ||
+            m_distanceField.GetDistanceToLand(lat2, lon2) < 0) {
+            return true;  // Endpoints on land - immediate answer
+        }
+        
+        // STAGE 1: Sample path at regular intervals using distance field
+        size_t samples = 10;
+        for (size_t i = 1; i < samples; ++i) {
+            double t = static_cast<double>(i) / samples;
+            double lat = lat1 + t * (lat2 - lat1);
+            double lon = lon1 + t * (lon2 - lon1);
+            
+            if (m_distanceField.GetDistanceToLand(lat, lon) < 0) {
+                return true;  // Path crosses land
+            }
+        }
+        
+        // STAGE 2: Fallback to precise R-tree intersection if needed
+        // (Only for edge cases where sampling might miss narrow land)
+        return m_rtreeIndex.FastCrossesLand(lat1, lon1, lat2, lon2);
+    }
+    
+private:
+    DistanceFieldApproach m_distanceField;
+    ZeroCopyCoastlineSpatialIndex m_rtreeIndex;
+};
+```
+
+**PHASE 2: Add Path Planning Capabilities**
+
+```cpp
+// PATH PLANNING EXTENSION: Add navigation graph for route calculation
+class Phase2Implementation : public Phase1Implementation {
+public:
+    // NEW CAPABILITY: Calculate safe paths between points
+    std::vector<wxRealPoint> FindSafePath(double start_lat, double start_lon,
+                                         double end_lat, double end_lon,
+                                         double safety_margin_nm = 0.1) {
+        return m_navigationGraph.FindSafePath(start_lat, start_lon, end_lat, end_lon);
+    }
+    
+    // ENHANCED ROUTE VALIDATION: Check entire routes efficiently
+    struct RouteValidationResult {
+        bool is_safe;
+        std::vector<size_t> problem_segments;  // Which waypoint pairs have issues
+        std::vector<double> clearances;       // Distance to land for each segment
+        double minimum_clearance;             // Closest approach to land
+    };
+    
+    RouteValidationResult ValidateRouteDetailed(const std::vector<wxRealPoint>& waypoints,
+                                               double required_clearance_nm = 0.1) {
+        RouteValidationResult result;
+        result.minimum_clearance = std::numeric_limits<double>::max();
+        
+        for (size_t i = 0; i < waypoints.size() - 1; ++i) {
+            // Use distance field for fast clearance checking
+            double clearance = CheckSegmentClearance(waypoints[i], waypoints[i+1]);
+            result.clearances.push_back(clearance);
+            
+            if (clearance < required_clearance_nm) {
+                result.is_safe = false;
+                result.problem_segments.push_back(i);
+            }
+            
+            result.minimum_clearance = std::min(result.minimum_clearance, clearance);
+        }
+        
+        return result;
+    }
+    
+private:
+    NavigationGraphApproach m_navigationGraph;
+};
+```
+
+**PHASE 3: Full Hybrid System**
+
+```cpp
+// COMPLETE SOLUTION: All algorithms optimized for different use cases
+class Phase3Implementation : public Phase2Implementation {
+public:
+    // ADAPTIVE ALGORITHM SELECTION based on query characteristics
+    std::vector<wxRealPoint> FindOptimalPath(double start_lat, double start_lon,
+                                            double end_lat, double end_lon,
+                                            const PathfindingConstraints& constraints) {
+        double distance = CalculateDistance(start_lat, start_lon, end_lat, end_lon);
+        
+        if (distance > 100000) {  // >100km - long distance
+            return m_hierarchicalNav.FindSafePath(start_lat, start_lon, end_lat, end_lon);
+        } else if (constraints.requires_precision) {  // Harbor navigation
+            return m_precisionNav.FindPrecisionPath(start_lat, start_lon, end_lat, end_lon);
+        } else {  // General coastal navigation
+            return m_navigationGraph.FindSafePath(start_lat, start_lon, end_lat, end_lon);
+        }
+    }
+    
+    // MULTIPLE PATH OPTIONS for user choice
+    std::vector<PathOption> FindPathOptions(double start_lat, double start_lon,
+                                          double end_lat, double end_lon) {
+        return {
+            {"Shortest Safe", FindShortestSafePath(start_lat, start_lon, end_lat, end_lon)},
+            {"Most Direct", FindMostDirectPath(start_lat, start_lon, end_lat, end_lon)},
+            {"Scenic Route", FindScenicPath(start_lat, start_lon, end_lat, end_lon)}
+        };
+    }
+    
+private:
+    HierarchicalNavigationApproach m_hierarchicalNav;
+    DistanceFieldApproach m_precisionNav;  // High-resolution for harbors
+};
+```
+
+### Implementation Recommendation
+
+**RECOMMENDED APPROACH**: Start with **Phase 1** (Enhanced R-tree + Distance Field) because:
+
+1. **Immediate 100-1000x performance improvement** for existing use cases
+2. **Minimal disruption** to existing OpenCPN architecture  
+3. **Clear upgrade path** to full path planning capabilities
+4. **Manageable complexity** for initial implementation
+5. **Proven algorithms** with well-understood characteristics
+
+**Future Enhancement Path**:
+
+- Phase 1: Solve immediate performance problems (3-6 months)
+- Phase 2: Add path planning capabilities (6-12 months)  
+- Phase 3: Full multi-scale navigation system (12+ months)
+
+This approach addresses your key concerns:
+
+- ✅ **Path planning capabilities** (Phase 2+)
+- ✅ **Route validation** (Phase 1+)  
+- ✅ **Better than line intersection** (Distance field + sampling)
+- ✅ **Scalable architecture** (Hybrid system design)
+- ✅ **Practical implementation** (Phased approach)
+
+## Original Abstraction Design Goals
+
 ## Abstraction Design Goals
 
 ### 1. Universal Feature Representation
