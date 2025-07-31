@@ -249,17 +249,27 @@ public:
         // MULTI-SCALE HIERARCHY: Nested subdivision levels for different use cases
         std::vector<double> subdivisionLevels = {1.0, 0.1, 0.01, 0.001}; // degrees
         
-        // ADAPTIVE PARAMETERS: Adjust based on geometry complexity
+        // ADAPTIVE PARAMETERS: Adjust based on automated geometry analysis
         size_t maxVerticesPerSegment = 50;    // Target vertices per segment
         size_t overlapVertices = 5;           // Overlap between adjacent segments
         size_t minVerticesForSubdivision = 10; // Don't subdivide tiny polygons
         
-        // COASTAL NAVIGATION OPTIMIZATION: Fine subdivision near navigation routes
-        double coastalNavigationThreshold = 0.01; // 1.1km at equator
+        // AUTOMATED COASTAL NAVIGATION OPTIMIZATION: No hardcoded geographic areas
+        // Uses geometric analysis to automatically detect coastal characteristics:
+        // - High vertex density (>1000 vertices/degree²) indicates detailed navigation data
+        // - High perimeter-to-area ratio suggests complex coastlines requiring fine subdivision  
+        // - Small bounding boxes (<0.25 degree²) with detail suggest harbor/bay navigation
+        // - Multiple complex contours in small areas indicate archipelago navigation
+        // - Elongated high-detail geometry suggests coastal route following
+        double coastalNavigationThreshold = 0.01; // 1.1km at equator - finest subdivision
         bool enableAdaptiveDensity = true;
         
-        // PERFORMANCE SAFETY: Never create more index entries than vertices
+        // PERFORMANCE SAFETY: Prevent excessive subdivision that could hurt performance
         double maxIndexDensityRatio = 0.1; // max 10% as many index entries as vertices
+        
+        // USER CONFIGURATION: Allow sailors to define their frequent areas
+        // Future enhancement: Load user-defined sailing areas from configuration
+        bool enableUserDefinedAreas = false;  // TODO: Implement user config system
     };
     
     // HIERARCHICAL SUBDIVISION: Creates multiple index levels for different query scales
@@ -303,43 +313,184 @@ private:
         analysis.totalBounds = geometry.GetBoundingBox();
         analysis.totalVertices = 0;
         
+        // Collect detailed geometric statistics for automated coastal detection
+        double totalPerimeter = 0;
+        double totalArea = 0; // Approximate area calculation
+        std::vector<double> contourComplexities;
+        
         for (size_t i = 0; i < geometry.GetContourCount(); ++i) {
-            analysis.totalVertices += geometry.GetContourVertexCount(i);
+            size_t vertexCount = geometry.GetContourVertexCount(i);
+            analysis.totalVertices += vertexCount;
+            
+            if (vertexCount >= 3) {
+                // Calculate perimeter and approximate area for this contour
+                double contourPerimeter = 0;
+                double contourArea = 0;
+                
+                for (size_t j = 0; j < vertexCount; ++j) {
+                    size_t next = (j + 1) % vertexCount;
+                    wxRealPoint p1 = geometry.GetContourVertex(i, j);
+                    wxRealPoint p2 = geometry.GetContourVertex(i, next);
+                    
+                    // Perimeter calculation
+                    double dx = p2.x - p1.x;
+                    double dy = p2.y - p1.y;
+                    contourPerimeter += sqrt(dx*dx + dy*dy);
+                    
+                    // Shoelace formula for area (approximate for lat/lon)
+                    contourArea += (p1.x * p2.y - p2.x * p1.y);
+                }
+                
+                contourArea = std::abs(contourArea) / 2.0;
+                totalPerimeter += contourPerimeter;
+                totalArea += contourArea;
+                
+                // Calculate complexity metric for this contour
+                double complexity = contourPerimeter / std::max(sqrt(contourArea), 0.001);
+                contourComplexities.push_back(complexity);
+            }
         }
         
         // Calculate vertex density (vertices per square degree)
         double areaSquareDegrees = analysis.totalBounds.GetLonRange() * analysis.totalBounds.GetLatRange();
         analysis.averageVertexDensity = analysis.totalVertices / std::max(areaSquareDegrees, 0.001);
         
-        // Assess geometric complexity (simplified metric)
-        analysis.coastlineComplexity = CalculateCoastlineComplexity(geometry);
+        // AUTOMATED COASTAL NAVIGATION DETECTION using geometric characteristics
+        analysis.isCoastalNavigation = AutoDetectCoastalNavigation(
+            analysis.totalBounds, 
+            analysis.averageVertexDensity,
+            totalPerimeter,
+            totalArea,
+            contourComplexities
+        );
         
-        // Detect coastal navigation scenarios (near major ports/shipping lanes)
-        analysis.isCoastalNavigation = IsCoastalNavigationArea(analysis.totalBounds);
+        // Assess geometric complexity using multiple metrics
+        analysis.coastlineComplexity = CalculateOverallComplexity(
+            totalPerimeter, 
+            totalArea, 
+            contourComplexities, 
+            analysis.totalVertices
+        );
         
         return analysis;
     }
     
-    // ADAPTIVE SUBDIVISION LEVEL SELECTION: Choose optimal granularity based on use case
+private:
+    // AUTOMATED COASTAL NAVIGATION DETECTION: Use geometric characteristics
+    static bool AutoDetectCoastalNavigation(const LLBBox& bounds,
+                                           double vertexDensity,
+                                           double totalPerimeter,
+                                           double totalArea,
+                                           const std::vector<double>& contourComplexities) {
+        
+        // DETECTION METHOD 1: High vertex density suggests detailed coastal features
+        if (vertexDensity > 1000) {  // More than 1000 vertices per square degree
+            return true;  // Very detailed geometry likely for navigation
+        }
+        
+        // DETECTION METHOD 2: High perimeter-to-area ratio suggests complex coastline
+        double perimeterToAreaRatio = totalPerimeter / std::max(totalArea, 0.001);
+        if (perimeterToAreaRatio > 50 && bounds.GetLonRange() < 2.0) {
+            return true;  // Complex, detailed coastline in reasonable area
+        }
+        
+        // DETECTION METHOD 3: Multiple highly complex contours suggest archipelago/bay system
+        size_t highlyComplexContours = 0;
+        for (double complexity : contourComplexities) {
+            if (complexity > 20) {  // Very convoluted contour
+                highlyComplexContours++;
+            }
+        }
+        if (highlyComplexContours > 3 && bounds.GetLonRange() < 1.0) {
+            return true;  // Multiple complex features in small area = coastal navigation
+        }
+        
+        // DETECTION METHOD 4: Small area with reasonable detail suggests harbor/bay
+        double bboxArea = bounds.GetLonRange() * bounds.GetLatRange();
+        if (bboxArea < 0.25 && vertexDensity > 100) {  // Small area with good detail
+            return true;
+        }
+        
+        // DETECTION METHOD 5: Elongated geometry with high detail suggests coastline following
+        double aspectRatio = std::max(bounds.GetLonRange(), bounds.GetLatRange()) / 
+                            std::min(bounds.GetLonRange(), bounds.GetLatRange());
+        if (aspectRatio > 3.0 && vertexDensity > 500 && bboxArea < 1.0) {
+            return true;  // Long, narrow, detailed geometry = coastal navigation route
+        }
+        
+        return false;
+    }
+    
+    // ENHANCED COMPLEXITY CALCULATION using multiple geometric metrics
+    static double CalculateOverallComplexity(double totalPerimeter,
+                                           double totalArea,
+                                           const std::vector<double>& contourComplexities,
+                                           size_t totalVertices) {
+        // Combine multiple complexity indicators
+        double complexity = 0;
+        
+        // Base complexity from perimeter-to-area ratio
+        complexity += totalPerimeter / std::max(totalArea, 0.001);
+        
+        // Add contribution from individual contour complexities
+        if (!contourComplexities.empty()) {
+            double avgContourComplexity = 0;
+            for (double c : contourComplexities) {
+                avgContourComplexity += c;
+            }
+            avgContourComplexity /= contourComplexities.size();
+            complexity += avgContourComplexity;
+        }
+        
+        // Factor in vertex density as complexity indicator
+        complexity += sqrt(totalVertices) / 10.0;  // Scaled contribution
+        
+        return complexity;
+    }
+    
+    // ADAPTIVE SUBDIVISION LEVEL SELECTION: Choose optimal granularity based on automated analysis
     static double SelectOptimalSubdivisionLevel(const GeometryAnalysis& analysis, 
                                                const SubdivisionParams& params) {
-        // For coastal navigation areas: Use finest subdivision
+        // AUTOMATED DECISION TREE based on geometric characteristics
+        
+        // PRIORITY 1: Coastal navigation areas get finest subdivision
         if (analysis.isCoastalNavigation) {
             return params.coastalNavigationThreshold; // 0.01° = ~1.1km
         }
         
-        // For high-complexity coastlines: Use medium subdivision
-        if (analysis.coastlineComplexity > 1000) {  // Highly convoluted coastline
-            return 0.1; // ~11km segments
+        // PRIORITY 2: Very high vertex density suggests detailed navigation data
+        if (analysis.averageVertexDensity > 2000) {
+            return 0.005; // Ultra-fine: ~0.55km segments for extremely detailed areas
         }
         
-        // For simple/sparse geometries: Use coarse subdivision
-        if (analysis.averageVertexDensity < 10) {  // Few vertices per square degree
-            return 1.0; // ~111km segments
+        // PRIORITY 3: High vertex density with reasonable area suggests bay/harbor navigation
+        double bboxArea = analysis.totalBounds.GetLonRange() * analysis.totalBounds.GetLatRange();
+        if (analysis.averageVertexDensity > 500 && bboxArea < 1.0) {
+            return 0.01; // Fine: ~1.1km segments for detailed coastal areas
         }
         
-        // Default: Medium subdivision for balanced performance
-        return 0.1;
+        // PRIORITY 4: High complexity coastlines get medium-fine subdivision
+        if (analysis.coastlineComplexity > 1000) {
+            return 0.05; // Medium-fine: ~5.5km segments for complex coastlines
+        }
+        
+        // PRIORITY 5: Moderate complexity gets medium subdivision
+        if (analysis.coastlineComplexity > 100) {
+            return 0.1; // Medium: ~11km segments for moderately complex coastlines
+        }
+        
+        // PRIORITY 6: Simple/sparse geometries get coarse subdivision
+        if (analysis.averageVertexDensity < 10) {
+            return 1.0; // Coarse: ~111km segments for simple open ocean areas
+        }
+        
+        // PRIORITY 7: Small areas with moderate detail get fine subdivision
+        if (bboxArea < 0.25 && analysis.averageVertexDensity > 50) {
+            return 0.02; // Fine: ~2.2km segments for small detailed areas
+        }
+        
+        // DEFAULT: Medium subdivision for balanced performance
+        return 0.1; // ~11km segments as reasonable default
     }
     
     // ADAPTIVE CONTOUR SUBDIVISION: Variable granularity based on local geometry
@@ -393,24 +544,56 @@ private:
         return segmentBounds;
     }
     
-    // COASTAL NAVIGATION DETECTION: Identify areas requiring finest subdivision
+    // AUTOMATED COASTAL NAVIGATION DETECTION: Identify areas requiring finest subdivision
+    // Uses geometric analysis to automatically detect coastal characteristics worldwide
     static bool IsCoastalNavigationArea(const LLBBox& bounds) {
-        // Major coastal navigation areas requiring finest subdivision:
+        // AUTOMATED APPROACH: Detect coastal navigation areas through geometric analysis
+        // This works worldwide without hardcoded geographic boundaries
         
-        // US West Coast: San Francisco Bay, Los Angeles, Seattle
-        if (bounds.IntersectOut(-125, -117, 32, 48)) return true;
+        // METHOD 1: SCALE ANALYSIS - Small bounding boxes likely indicate detailed coastal data
+        double bboxArea = bounds.GetLonRange() * bounds.GetLatRange(); // square degrees
+        if (bboxArea < 0.25) {  // Less than 0.5° × 0.5° (~55km × 55km at equator)
+            // Small area suggests detailed coastal features requiring fine subdivision
+            return true;
+        }
         
-        // US East Coast: New York Harbor, Chesapeake Bay, Miami
-        if (bounds.IntersectOut(-81, -70, 25, 45)) return true;
+        // METHOD 2: ASPECT RATIO ANALYSIS - Long, narrow areas often indicate coastlines
+        double lonRange = bounds.GetLonRange();
+        double latRange = bounds.GetLatRange();
+        double aspectRatio = std::max(lonRange, latRange) / std::min(lonRange, latRange);
+        if (aspectRatio > 3.0 && bboxArea < 1.0) {
+            // Long, narrow geometry within reasonable size suggests coastline
+            return true;
+        }
         
-        // European coasts: English Channel, North Sea, Mediterranean
-        if (bounds.IntersectOut(-10, 30, 35, 65)) return true;
+        // METHOD 3: PROXIMITY TO WATER DETECTION (requires additional context)
+        // This would need access to water/land classification from the geometry
+        // For now, use conservative approach based on size
         
-        // Major Asian ports: Tokyo Bay, Hong Kong, Singapore
-        if (bounds.IntersectOut(100, 140, 1, 40)) return true;
+        // METHOD 4: USER CONFIGURATION - Allow users to define their sailing areas
+        if (IsUserDefinedCoastalArea(bounds)) {
+            return true;
+        }
         
-        // TODO: Load from configuration file for user-customizable navigation areas
+        // DEFAULT: Use fine subdivision for any reasonably small area
+        // Better to over-subdivide than under-subdivide for navigation safety
+        return bboxArea < 0.5;  // Areas smaller than ~0.7° × 0.7° get fine subdivision
+    }
+    
+    // USER-CONFIGURABLE COASTAL AREAS: Allow sailors to define their regions
+    static bool IsUserDefinedCoastalArea(const LLBBox& bounds) {
+        // TODO: Load from user configuration file or database
+        // Users can define their frequent sailing areas for optimal performance
+        // Example config format:
+        // {
+        //   "my_sailing_areas": [
+        //     {"name": "San Francisco Bay", "bounds": [37.4, -122.6, 38.0, -122.0]},
+        //     {"name": "Puget Sound", "bounds": [47.0, -123.0, 48.5, -122.0]},
+        //     {"name": "Mediterranean", "bounds": [30.0, -6.0, 46.0, 36.0]}
+        //   ]
+        // }
         
+        // For now, return false - will be implemented in user configuration system
         return false;
     }
     
