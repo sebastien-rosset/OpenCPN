@@ -81,7 +81,7 @@ We may want to extract the following ENC features:
 Based on Task 1.1 analysis, the multi-source spatial abstraction must handle five distinct data systems:
 
 1. **GSHHS** - Global polygon coastlines (5 quality levels)
-2. **OSMSHP** - OpenStreetMap shapefile coastlines (5 quality levels) 
+2. **OSMSHP** - OpenStreetMap shapefile coastlines (5 quality levels)
 3. **S-57/ENC** - Professional vector charts (100+ object classes)
 4. **Shapefile Basemaps** - Generic shapefile features
 5. **Plugin Data Sources** - Third-party spatial data
@@ -377,7 +377,8 @@ extern "C" bool PlugIn_GSHHS_CrossesLand(double lat1, double lon1,
 }
 ```
 
-**Gradual Migration Path**: 
+**Gradual Migration Path**:
+
 - Phase 1: New system operates alongside existing GSHHS system
 - Phase 2: Plugins can opt-in to enhanced spatial API
 - Phase 3: Full migration with performance monitoring
@@ -542,6 +543,7 @@ extern "C" void RegisterPluginSpatialData(PluginSpatialInterface* interface) {
 #### 1. Why Hierarchical Feature Types?
 
 The analysis revealed that different data sources have very different feature classification schemes:
+
 - **GSHHS**: 5 hierarchical levels (land/lake/island/pond)
 - **S-57**: 100+ object classes with complex attributes  
 - **OSMSHP**: Simple land/water binary classification
