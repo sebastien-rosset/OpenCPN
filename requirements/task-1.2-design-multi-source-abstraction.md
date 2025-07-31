@@ -152,6 +152,11 @@ Based on analysis of existing OpenCPN systems, the multi-source spatial abstract
 // FastCrossesLand() -> R-tree.Query() -> candidates -> IntersectsLine() for each candidate
 //
 // This eliminates O(n) linear search while preserving existing intersection algorithms
+//
+// CRITICAL PERFORMANCE CONTEXT:
+// Maritime polygon data can contain TENS OF MILLIONS of vertices in single polygons
+// (e.g., high-resolution Pacific coastline, detailed island chains)
+// Traditional linear intersection algorithms become prohibitively slow at this scale
 class ICoastlineGeometry {
 public:
     virtual ~ICoastlineGeometry() = default;
@@ -159,19 +164,141 @@ public:
     // STAGE 2: Precise intersection testing - called AFTER R-tree pre-filtering
     // This delegates to existing CrossesLand()/crossing1() implementations
     // Only called on geometries that survived spatial pre-filtering
+    // 
+    // PERFORMANCE WARNING: Some polygons contain tens of millions of vertices
+    // Even with R-tree pre-filtering, this may still be expensive for coastal paths
     virtual bool IntersectsLine(double lat1, double lon1, double lat2, double lon2) const = 0;
     
+    // DATASET BOUNDS: Returns bounding box for the ENTIRE geometry dataset
+    // For GSHHS: bounds of all polygons in the cell
+    // For OSMSHP: bounds of all polygons in the shapefile/chart
+    // For S-57: bounds of all LNDARE objects in the chart
+    // Used for: data source selection, coverage analysis, R-tree root bounds
     virtual LLBBox GetBoundingBox() const = 0;
+    
     virtual std::string GetDataSourceName() const = 0;
     virtual int GetQualityLevel() const = 0;
     
-    // STAGE 1: Spatial indexing - subdivide large polygons into smaller bounding boxes
-    // Used by R-tree for fast spatial pre-filtering before precise intersection testing
+    // STAGE 1: Spatial indexing preparation - UNIFIED SUBDIVISION INTERFACE
+    // 
+    // SUBDIVISION REQUIREMENTS for high performance:
+    // 1. Large polygons (>1° span) MUST be subdivided into smaller segments
+    // 2. Segments should target ~1° maximum dimension (roughly 111km at equator)
+    // 3. Segments MUST overlap by 5-10 vertices to prevent intersection gaps
+    // 4. Small polygons (<1° or <10 vertices) should remain as single segments
+    // 5. Subdivision is for INDEX ACCELERATION only - original geometry unchanged
+    //
+    // IMPLEMENTATION: Delegates to unified subdivision algorithm, not per-adapter logic
     virtual std::vector<LLBBox> GetSegmentBounds() const = 0;
     
-    // Direct access to existing geometry representations
+    // GEOMETRY ACCESS INTERFACE: Support for unified subdivision algorithm
+    // Provides structured access to underlying polygon data for subdivision
+    virtual size_t GetContourCount() const = 0;
+    virtual size_t GetContourVertexCount(size_t contourIndex) const = 0;
+    virtual wxRealPoint GetContourVertex(size_t contourIndex, size_t vertexIndex) const = 0;
+    
+    // NATIVE GEOMETRY ACCESS: Direct access to original data structures
+    // 
+    // PRIMARY USES:
+    // 1. **Performance-Critical Code**: Direct access avoids interface overhead
+    //    - Custom optimized intersection algorithms
+    //    - Bulk geometry processing operations
+    //    - Real-time rendering optimizations
+    // 
+    // 2. **Memory Analysis & Debugging**: 
+    //    - Measure actual memory usage of original data structures
+    //    - Validate zero-copy design (no data duplication)
+    //    - Debug geometry corruption or coordinate system issues
+    // 
+    // 3. **Legacy Integration**: 
+    //    - Existing code that expects specific data structure types
+    //    - Gradual migration from direct data access to interface-based access
+    //    - Plugin compatibility where direct structure access is required
+    // 
+    // 4. **Advanced Spatial Operations**:
+    //    - Complex geometric algorithms that need full polygon access
+    //    - Coordinate transformations that operate on entire datasets
+    //    - Statistical analysis of vertex distributions
+    // 
+    // USAGE PATTERN:
+    // ```cpp
+    // if (geometry->GetNativeType() == "contour_list") {
+    //     const contour_list* polygons = static_cast<const contour_list*>(
+    //         geometry->GetNativeGeometry());
+    //     // Direct access to wxRealPoint vertices for performance-critical operations
+    // }
+    // ```
     virtual const void* GetNativeGeometry() const = 0;
     virtual std::string GetNativeType() const = 0;  // "contour_list", "OGRPolygon", etc.
+};
+
+// UNIFIED SUBDIVISION ALGORITHM: Single implementation used by all adapters
+// Eliminates code duplication and provides consistent subdivision behavior
+class UnifiedPolygonSubdivision {
+public:
+    struct SubdivisionParams {
+        double maxDegreeSpan = 1.0;           // Maximum segment span in degrees
+        size_t maxVerticesPerSegment = 50;    // Target vertices per segment
+        size_t overlapVertices = 5;           // Overlap between adjacent segments
+        size_t minVerticesForSubdivision = 10; // Don't subdivide tiny polygons
+    };
+    
+    // SINGLE SUBDIVISION ALGORITHM: Works with any ICoastlineGeometry implementation
+    static std::vector<LLBBox> SubdivideGeometry(const ICoastlineGeometry& geometry, 
+                                                 const SubdivisionParams& params = SubdivisionParams{}) {
+        std::vector<LLBBox> allSegmentBounds;
+        
+        // Process each contour in the geometry
+        for (size_t contourIdx = 0; contourIdx < geometry.GetContourCount(); ++contourIdx) {
+            auto contourBounds = SubdivideContour(geometry, contourIdx, params);
+            allSegmentBounds.insert(allSegmentBounds.end(), contourBounds.begin(), contourBounds.end());
+        }
+        
+        return allSegmentBounds;
+    }
+    
+private:
+    // Subdivide individual contour using sliding window approach
+    static std::vector<LLBBox> SubdivideContour(const ICoastlineGeometry& geometry, 
+                                               size_t contourIndex,
+                                               const SubdivisionParams& params) {
+        std::vector<LLBBox> segmentBounds;
+        
+        size_t vertexCount = geometry.GetContourVertexCount(contourIndex);
+        
+        // Calculate contour bounding box
+        LLBBox contourBounds;
+        for (size_t i = 0; i < vertexCount; ++i) {
+            wxRealPoint vertex = geometry.GetContourVertex(contourIndex, i);
+            contourBounds.Expand(vertex.y, vertex.x);  // lat, lon
+        }
+        
+        // Check if subdivision is needed
+        double maxDimension = std::max(contourBounds.GetLonRange(), contourBounds.GetLatRange());
+        if (maxDimension <= params.maxDegreeSpan || vertexCount < params.minVerticesForSubdivision) {
+            // Small contour - use as single segment
+            segmentBounds.push_back(contourBounds);
+            return segmentBounds;
+        }
+        
+        // SLIDING WINDOW SUBDIVISION: Create overlapping segments
+        for (size_t start = 0; start < vertexCount; start += (params.maxVerticesPerSegment - params.overlapVertices)) {
+            size_t end = std::min(start + params.maxVerticesPerSegment, vertexCount);
+            
+            // Calculate bounding box for this vertex range
+            LLBBox segmentBox;
+            for (size_t i = start; i < end; ++i) {
+                wxRealPoint vertex = geometry.GetContourVertex(contourIndex, i);
+                segmentBox.Expand(vertex.y, vertex.x);
+            }
+            
+            segmentBounds.push_back(segmentBox);
+            
+            if (end >= vertexCount) break;
+        }
+        
+        return segmentBounds;
+    }
 };
 
 // Extend existing GSHHS structures to implement the interface
@@ -190,76 +317,44 @@ public:
         // - Before: O(n) - this was called on ALL GSHHS cells
         // - After: O(log n + k) - R-tree reduces candidates to small set, then we test each
         // 
+        // PERFORMANCE WARNING: GSHHS polygons can contain millions of vertices
+        // Coastal navigation paths may still trigger many calls to this method
+        // 
         // No data duplication - delegates to existing proven intersection code
         return m_originalCell->crossing1(/* trajectory parameters */);
     }
     
     LLBBox GetBoundingBox() const override {
-        // Use existing GSHHS bounding box calculation
+        // DATASET BOUNDS: Return bounds for ALL polygons in this GSHHS cell
+        // Covers poly1, poly2, poly3, poly4, poly5 (different land/water hierarchy levels)
         return m_originalCell->GetBoundingBox();
     }
     
     std::vector<LLBBox> GetSegmentBounds() const override {
-        // STAGE 1: Spatial indexing preparation - subdivide large polygons for R-tree
-        //
-        // PURPOSE: Large coastline polygons (e.g., entire Pacific coast) create massive
-        // bounding boxes that provide no spatial discrimination in R-tree queries.
-        // 
-        // SOLUTION: Break large polygons into ~1° segments for efficient spatial filtering
-        // 
-        // PERFORMANCE IMPACT:
-        // - Without subdivision: R-tree returns "entire Pacific coast" for any West Coast query
-        // - With subdivision: R-tree returns only nearby ~111km coastal segments
-        //
-        // NOTE: Original geometry stays intact - only bounding boxes are subdivided
-        std::vector<LLBBox> bounds;
-        const contour_list& polygons = m_originalCell->getPoly1();
-        
-        for (const auto& contour : polygons) {
-            // Subdivide large contours for better spatial discrimination
-            auto subdivisionBounds = SubdivideContourForIndexing(contour);
-            bounds.insert(bounds.end(), subdivisionBounds.begin(), subdivisionBounds.end());
-        }
-        return bounds;
+        // UNIFIED SUBDIVISION: Delegate to single algorithm instead of per-adapter logic
+        return UnifiedPolygonSubdivision::SubdivideGeometry(*this);
     }
-
-private:
-    // Adaptive subdivision strategy for large polygons
-    std::vector<LLBBox> SubdivideContourForIndexing(const contour& polygon) const {
-        std::vector<LLBBox> segmentBounds;
+    
+    // GEOMETRY ACCESS INTERFACE: Support unified subdivision algorithm
+    size_t GetContourCount() const override {
+        // GSHHS has multiple polygon levels: poly1, poly2, poly3, poly4, poly5
+        const contour_list& polygons = m_originalCell->getPoly1();
+        return polygons.size();
+    }
+    
+    size_t GetContourVertexCount(size_t contourIndex) const override {
+        const contour_list& polygons = m_originalCell->getPoly1();
+        if (contourIndex >= polygons.size()) return 0;
+        return polygons[contourIndex].size();
+    }
+    
+    wxRealPoint GetContourVertex(size_t contourIndex, size_t vertexIndex) const override {
+        const contour_list& polygons = m_originalCell->getPoly1(); 
+        if (contourIndex >= polygons.size()) return wxRealPoint(0, 0);
+        if (vertexIndex >= polygons[contourIndex].size()) return wxRealPoint(0, 0);
         
-        // Calculate overall polygon bounds
-        LLBBox totalBounds = CalculateContourBounds(polygon);
-        double maxDimension = std::max(totalBounds.GetLonRange(), totalBounds.GetLatRange());
-        
-        // SUBDIVISION THRESHOLD: If polygon spans > 1.0 degrees, subdivide
-        const double SUBDIVISION_THRESHOLD = 1.0;  // degrees
-        
-        if (maxDimension <= SUBDIVISION_THRESHOLD || polygon.size() < 10) {
-            // Small polygon - use as single segment
-            segmentBounds.push_back(totalBounds);
-            return segmentBounds;
-        }
-        
-        // SLIDING WINDOW APPROACH: Create overlapping segments
-        const size_t VERTICES_PER_SEGMENT = 50;  // ~50 vertices per spatial index segment
-        const size_t OVERLAP_VERTICES = 5;       // Overlap to ensure continuity
-        
-        for (size_t start = 0; start < polygon.size(); start += (VERTICES_PER_SEGMENT - OVERLAP_VERTICES)) {
-            size_t end = std::min(start + VERTICES_PER_SEGMENT, polygon.size());
-            
-            // Calculate bounding box for this vertex range
-            LLBBox segmentBox;
-            for (size_t i = start; i < end; ++i) {
-                segmentBox.Expand(polygon[i].y, polygon[i].x);  // lat, lon
-            }
-            
-            segmentBounds.push_back(segmentBox);
-            
-            if (end >= polygon.size()) break;
-        }
-        
-        return segmentBounds;
+        const wxRealPoint& vertex = polygons[contourIndex][vertexIndex];
+        return vertex; // Already in lat/lon format
     }
     
     const void* GetNativeGeometry() const override {
@@ -270,7 +365,16 @@ private:
     std::string GetDataSourceName() const override { return "GSHHS"; }
 };
 
-// Extend existing ShapeBaseChart to implement the interface
+// OSMSHP/OpenStreetMap Shapefile Adapter
+// 
+// DATASET: OpenStreetMap-derived coastline data in shapefile format
+// SOURCE: Processed OSM coastline data, available in multiple quality levels
+// QUALITY LEVELS: 5 levels from 10×10° tiles (crude) to 1×1° tiles (full detail)
+// PERFORMANCE ISSUE: **PRIMARY TARGET FOR OPTIMIZATION**
+// - ShapeBaseChart::CrossesLand() exists but has UNACCEPTABLE performance
+// - Contains some of the largest polygons in maritime data (entire ocean coastlines)
+// - Polygons can contain TENS OF MILLIONS of vertices
+// - Critical for high-resolution coastal navigation but currently unusable due to speed
 class ShapeBaseChartAdapter : public ICoastlineGeometry {
 private:
     ShapeBaseChart* m_originalChart;  // Reference to existing data - NO COPY
@@ -279,75 +383,78 @@ public:
     explicit ShapeBaseChartAdapter(ShapeBaseChart* chart) : m_originalChart(chart) {}
     
     bool IntersectsLine(double lat1, double lon1, double lat2, double lon2) const override {
-        // Use existing ShapeBaseChart::CrossesLand() - no data duplication
+        // STAGE 2: Precise intersection using existing OSMSHP/shapefile algorithm
+        // 
+        // CRITICAL PERFORMANCE CONCERN: OSMSHP polygons are MASSIVE
+        // - Single polygons can contain 10+ million vertices (entire Pacific coastline)
+        // - Even with R-tree pre-filtering, this is still expensive for coastal paths
+        // - Coastal navigation (common use case) may trigger many intersection tests
+        // 
+        // FUTURE OPTIMIZATION: Consider segment-level intersection testing
+        // Current approach: Use existing proven intersection logic without changes
         double lat1_copy = lat1, lon1_copy = lon1, lat2_copy = lat2, lon2_copy = lon2;
         return m_originalChart->CrossesLand(lat1_copy, lon1_copy, lat2_copy, lon2_copy);
     }
     
+    LLBBox GetBoundingBox() const override {
+        // DATASET BOUNDS: Return bounds for ALL polygons in this shapefile/chart
+        // For OSMSHP: Typically covers one geographic tile (1×1° to 10×10°)
+        return m_originalChart->GetBoundingBox();
+    }
+    
     std::vector<LLBBox> GetSegmentBounds() const override {
-        // ADAPTIVE SUBDIVISION for OSMSHP/Shapefile data
-        // Problem: OSMSHP often has enormous coastline polygons (entire Pacific coast)
-        // Solution: Subdivide large polygons spatially while preserving original geometry
-        return SubdivideShapefilePolygons(*m_originalChart);
+        // UNIFIED SUBDIVISION: Delegate to single algorithm - highest priority for optimization
+        // OSMSHP contains the largest polygons in maritime data, making subdivision critical
+        return UnifiedPolygonSubdivision::SubdivideGeometry(*this);
+    }
+    
+    // GEOMETRY ACCESS INTERFACE: Support unified subdivision algorithm
+    size_t GetContourCount() const override {
+        // Access shapefile contour data - requires investigation of ShapeBaseChart internals
+        const auto& contourLists = GetShapefileContours(*m_originalChart);
+        size_t totalContours = 0;
+        for (const auto& contourList : contourLists) {
+            totalContours += contourList.size();
+        }
+        return totalContours;
+    }
+    
+    size_t GetContourVertexCount(size_t contourIndex) const override {
+        // Navigate to specific contour across all shapefile contour lists
+        const auto& contourLists = GetShapefileContours(*m_originalChart);
+        size_t currentIndex = 0;
+        
+        for (const auto& contourList : contourLists) {
+            if (currentIndex + contourList.size() > contourIndex) {
+                size_t localIndex = contourIndex - currentIndex;
+                return contourList[localIndex].size();
+            }
+            currentIndex += contourList.size();
+        }
+        return 0;
+    }
+    
+    wxRealPoint GetContourVertex(size_t contourIndex, size_t vertexIndex) const override {
+        // Navigate to specific vertex across all shapefile contour lists
+        const auto& contourLists = GetShapefileContours(*m_originalChart);
+        size_t currentIndex = 0;
+        
+        for (const auto& contourList : contourLists) {
+            if (currentIndex + contourList.size() > contourIndex) {
+                size_t localIndex = contourIndex - currentIndex;
+                if (vertexIndex >= contourList[localIndex].size()) return wxRealPoint(0, 0);
+                
+                const wxRealPoint& vertex = contourList[localIndex][vertexIndex];
+                return vertex; // Already in lat/lon format
+            }
+            currentIndex += contourList.size();
+        }
+        return wxRealPoint(0, 0);
     }
 
 private:
-    // Extract and subdivide shapefile polygons for better spatial indexing
-    std::vector<LLBBox> SubdivideShapefilePolygons(const ShapeBaseChart& chart) const {
-        std::vector<LLBBox> segmentBounds;
-        
-        // Access existing shapefile contour_list structures
-        // Note: This requires investigation of ShapeBaseChart internal structure
-        // For now, assume we can access the internal contour data
-        
-        const auto& contourLists = GetShapefileContours(chart);
-        
-        for (const auto& contourList : contourLists) {
-            for (const auto& contour : contourList) {
-                // Apply same subdivision logic as GSHHS
-                auto subdivisionBounds = SubdivideContourForIndexing(contour);
-                segmentBounds.insert(segmentBounds.end(), 
-                                   subdivisionBounds.begin(), subdivisionBounds.end());
-            }
-        }
-        
-        return segmentBounds;
-    }
-    
-    // Reuse subdivision logic from GSHHS adapter
-    std::vector<LLBBox> SubdivideContourForIndexing(const contour& polygon) const {
-        std::vector<LLBBox> segmentBounds;
-        
-        LLBBox totalBounds = CalculateContourBounds(polygon);
-        double maxDimension = std::max(totalBounds.GetLonRange(), totalBounds.GetLatRange());
-        
-        const double SUBDIVISION_THRESHOLD = 1.0;  // degrees
-        
-        if (maxDimension <= SUBDIVISION_THRESHOLD || polygon.size() < 10) {
-            segmentBounds.push_back(totalBounds);
-            return segmentBounds;
-        }
-        
-        // Sliding window subdivision for large polygons
-        const size_t VERTICES_PER_SEGMENT = 50;
-        const size_t OVERLAP_VERTICES = 5;
-        
-        for (size_t start = 0; start < polygon.size(); start += (VERTICES_PER_SEGMENT - OVERLAP_VERTICES)) {
-            size_t end = std::min(start + VERTICES_PER_SEGMENT, polygon.size());
-            
-            LLBBox segmentBox;
-            for (size_t i = start; i < end; ++i) {
-                segmentBox.Expand(polygon[i].y, polygon[i].x);
-            }
-            
-            segmentBounds.push_back(segmentBox);
-            if (end >= polygon.size()) break;
-        }
-        
-        return segmentBounds;
-    }
-    
     // Helper to access shapefile contour data - requires implementation
+    // IMPLEMENTATION NOTE: This requires investigation of ShapeBaseChart internal structure
     std::vector<contour_list> GetShapefileContours(const ShapeBaseChart& chart) const;
     
     const void* GetNativeGeometry() const override {
@@ -1369,6 +1476,60 @@ private:
 - Depth contours (DEPARE, DEPCNT from S-57)
 - Navigation hazards (OBSTRN, UWTROC, WRECKS)
 - Restricted areas (traffic separation zones, military areas)
+
+#### Phase 4: Advanced Intersection Performance Optimization (Future)
+
+**IDENTIFIED PERFORMANCE BOTTLENECK**: Even with R-tree spatial acceleration, `IntersectsLine()` can be expensive:
+
+**The Problem**:
+
+- Coastal navigation paths trigger many intersection tests (common use case)
+- Single OSMSHP polygons contain 10+ million vertices
+- Current approach tests entire polygon even after spatial pre-filtering
+- May still result in unacceptable performance for real-time coastal pathfinding
+
+**Future Three-Stage Optimization Strategy**:
+
+```cpp
+// STAGE 1: R-tree spatial pre-filtering (current implementation)
+// STAGE 2: Segment-level intersection testing (future optimization)
+// STAGE 3: Full polygon intersection testing (fallback)
+
+class AdvancedIntersectionOptimization {
+public:
+    // FUTURE: Segment-aware intersection testing
+    bool IntersectsLineWithSegmentOptimization(
+        double lat1, double lon1, double lat2, double lon2,  
+        const IndexEntry& candidate) {
+        
+        // Use subdivision segment information to test only relevant polygon parts
+        uint32_t segmentId = candidate.segmentId;
+        
+        // Test intersection against subdivision segment boundaries first
+        if (!candidate.bounds.IntersectsLine(lat1, lon1, lat2, lon2)) {
+            return false; // Fast rejection using bounding box
+        }
+        
+        // Test intersection against only the relevant polygon segment
+        return TestPolygonSegmentIntersection(candidate.geometry, segmentId, 
+                                            lat1, lon1, lat2, lon2);
+    }
+    
+private:
+    // Test intersection against subdivision segment, not entire polygon
+    bool TestPolygonSegmentIntersection(ICoastlineGeometry* geometry,
+                                      uint32_t segmentId,
+                                      double lat1, double lon1, double lat2, double lon2);
+};
+```
+
+**Implementation Priority**:
+
+- **Phase 1**: Focus on R-tree spatial acceleration (current design)
+- **Phase 2**: Measure real-world performance with coastal navigation paths
+- **Phase 3**: If needed, implement segment-level intersection optimization
+
+**Design Principle**: Preserve functional correctness while incrementally improving performance
 
 ### Technical Decisions and Rationale
 
