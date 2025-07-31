@@ -130,7 +130,7 @@ Based on analysis of existing OpenCPN systems, the multi-source spatial abstract
 
 1. **GSHHS** - Global polygon coastlines (5 quality levels: crude=1:50M to full=1:200K)
 2. **OSMSHP** - OpenStreetMap shapefile coastlines (5 quality levels: 10x10° to 1x1° tiles)
-3. **S-57/ENC** - Professional vector charts (variable resolution, typically 1:500 to 1:50,000)
+3. **S-57/ENC** - Vector charts (variable resolution, typically 1:500 to 1:50,000)
 4. **Shapefile Basemaps** - Generic shapefile features (variable resolution)
 
 **Key Design Challenge**: Replace O(n) linear intersection algorithms with **efficient spatial indexing (R-tree)** to achieve acceptable performance across all resolution levels, from GSHHS crude (0.1° vertex spacing) to ENC charts (sub-meter accuracy).
