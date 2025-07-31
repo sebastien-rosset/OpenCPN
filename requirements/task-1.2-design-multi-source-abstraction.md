@@ -16,6 +16,35 @@ Design a unified abstraction layer that can extract and represent spatial featur
 - Handle feature metadata and attributes consistently across different source formats
 - Support hierarchical feature relationships (e.g., land/lake/island from GSHHS, chart object classes from S-57)
 
+**Route Safety Configuration - S-57 ENC Object Mappings**
+
+We may want to extract the following ENC features:
+
+- Safety Depth → DEPARE, DEPCNT
+- Safety Height → BRIDGE, CBLOHD
+- Depths Above Safety Depth From 3D Database → DEPARE, SOUNDG
+- Active Captain Hazard Points → OBSTRN
+- Alarm Areas → PRCARE, RESARE
+- Obstructions Above Safety Depth → OBSTRN
+- Underwater and Awash Rock Above Safety Depth → UWTROC
+- Fishing Facilities Above Safety Depth → FISINS
+- Depth Areas Above Safety Depth → DEPARE
+- Land Area → LNDARE
+- Shoreline Constructions → SLCONS
+- Depth Soundings Above Safety Depth → SOUNDG
+- Bridges and Cables Clearances → BRIDGE, CBLOHD
+- Marine Farm → MARCUL
+- Traffic Separation Zone → TSSRON
+- Inshore Traffic Zone → ISTZNE
+- Restricted Area → RESARE
+- Precautionary Area → PRCARE
+- Offshore Platform → OFSPLF
+- Military Zone → MIPARE
+- Landing Area → LNDRGN
+- Sub Marine Transit Lane → SUBTLN
+- Mooring Zone → MORFAC
+- PSSA Zone → PSSARE
+
 ### 2. Dynamic Data Source Discovery
 
 - Design system to automatically detect available spatial data sources in user installations
