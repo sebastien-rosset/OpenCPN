@@ -10,18 +10,21 @@ Create a working prototype that demonstrates unified spatial indexing across mul
 ## Prototype Objectives
 
 ### 1. Multi-Source Integration Validation
+
 - Demonstrate extraction and indexing of features from at least 2-3 different data sources (e.g., GSHHS + S-57 depth contours + OSMSHP coastlines)
 - Validate that unified spatial queries can access features regardless of their original data source
 - Test data source prioritization and conflict resolution (e.g., when multiple sources provide coastline data for the same area)
 - Verify that the system gracefully handles missing or incomplete data sources
 
 ### 2. Performance Baseline Establishment
+
 - Implement basic spatial indexing (simple R-tree or grid-based) for the multi-source feature set
 - Measure query performance improvements over current source-specific implementations
 - Establish memory usage baselines for the unified indexing approach
 - Document load times for building spatial indices from available data sources
 
 ### 3. API Compatibility Demonstration
+
 - Show that existing APIs (like `PlugIn_GSHHS_CrossesLand`) can be enhanced without breaking changes
 - Prototype new spatial query capabilities that leverage the multi-source index
 - Demonstrate backwards compatibility with existing plugin and chart system integrations

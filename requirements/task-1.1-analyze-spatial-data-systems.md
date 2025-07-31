@@ -19,18 +19,21 @@ Comprehensively analyze OpenCPN's multiple spatial data systems to understand th
 ## Analysis Requirements
 
 ### 1. Data Format Assessment
+
 - Understand each system's coordinate systems, projections, and datum handling
 - Analyze polygon vs polyline representations across different sources
 - Document feature classification schemes (land/water, depth levels, hazard types)
 - Assess data quality, resolution, and coverage characteristics
 
 ### 2. Current Performance Characteristics
+
 - Identify bottlenecks in existing polygon intersection algorithms
 - Measure memory usage patterns for different data sources
 - Analyze loading times and caching behaviors
 - Document current spatial query patterns and frequencies
 
 ### 3. Integration Points Discovery
+
 - Map existing APIs and data access patterns
 - Identify common geometric operations across systems
 - Understand plugin integration mechanisms

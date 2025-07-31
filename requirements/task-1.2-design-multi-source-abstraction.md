@@ -10,18 +10,21 @@ Design a unified abstraction layer that can extract and represent spatial featur
 ## Abstraction Design Goals
 
 ### 1. Universal Feature Representation
+
 - Design common feature types that can represent coastlines, depth contours, hazards, and navigation aids from any source
 - Create abstraction for different geometry types (polygons, polylines, points) used across data systems
 - Handle feature metadata and attributes consistently across different source formats
 - Support hierarchical feature relationships (e.g., land/lake/island from GSHHS, chart object classes from S-57)
 
 ### 2. Dynamic Data Source Discovery
+
 - Design system to automatically detect available spatial data sources in user installations
 - Create priority and quality assessment framework for overlapping data sources
 - Handle graceful degradation when preferred data sources are unavailable
 - Support runtime addition of new data sources (e.g., user-installed charts or plugins)
 
 ### 3. Extensible Adapter Framework
+
 - Design plugin-like architecture for data source adapters
 - Create common interface for feature extraction from different formats
 - Support streaming extraction for large datasets
