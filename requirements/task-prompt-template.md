@@ -8,11 +8,11 @@ Copy and paste this prompt at the beginning of each task chat session, replacing
 
 I'm working on implementing a high-performance spatial indexing system for OpenCPN as described in the requirements. This is a complex maritime navigation project that requires careful analysis and integration with existing systems.
 
-**Project Overview**: Please read `/Users/serosset/git/OpenCPN/requirements/README.md` for the complete project context, goals, and maritime navigation safety requirements.
-
-**Current Task**: Please read `/Users/serosset/git/OpenCPN/requirements/{TASK_FILE}` for the specific task requirements and acceptance criteria.
-
 **Code Access**: The complete OpenCPN codebase is accessible through filesystem MCP under `/Users/serosset/git/OpenCPN`. Please examine the existing code thoroughly before making any recommendations.
+
+**Project Overview**: Please read `requirements/README.md` for the complete project context, goals, and maritime navigation safety requirements.
+
+**Current Task**: Please read `requirements/{TASK_FILE}` for the specific task requirements and acceptance criteria.
 
 ## Quality Expectations
 
@@ -42,16 +42,3 @@ This is a mission-critical navigation safety system with very high quality requi
 5. Only proceed with implementation after the approach is validated
 
 Please start by confirming you've read the project README and task requirements, then begin your analysis of the existing codebase relevant to this task.
-
----
-
-## Task-Specific Examples
-
-### For Task 1.1 (Analysis):
-Replace `{TASK_FILE}` with: `task-1.1-analyze-spatial-data-systems.md`
-
-### For Task 2.1 (Implementation):
-Replace `{TASK_FILE}` with: `task-2.1-implement-production-spatial-index.md`
-
-### For Task 4.1 (Integration):
-Replace `{TASK_FILE}` with: `task-4.1-replace-gshhs-crossesland.md`
