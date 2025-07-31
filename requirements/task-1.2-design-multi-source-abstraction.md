@@ -78,13 +78,14 @@ We may want to extract the following ENC features:
 
 ### Core Architecture Overview
 
-Based on Task 1.1 analysis, the multi-source spatial abstraction must handle five distinct data systems:
+Based on Task 1.1 analysis, the multi-source spatial abstraction must handle four well-understood data systems:
 
-1. **GSHHS** - Global polygon coastlines (5 quality levels)
-2. **OSMSHP** - OpenStreetMap shapefile coastlines (5 quality levels)
-3. **S-57/ENC** - Professional vector charts (100+ object classes)
-4. **Shapefile Basemaps** - Generic shapefile features
-5. **Plugin Data Sources** - Third-party spatial data
+1. **GSHHS** - Global polygon coastlines (5 quality levels: crude=1:50M to full=1:200K)
+2. **OSMSHP** - OpenStreetMap shapefile coastlines (5 quality levels: 10x10° to 1x1° tiles)
+3. **S-57/ENC** - Professional vector charts (variable resolution, typically 1:500 to 1:50,000)
+4. **Shapefile Basemaps** - Generic shapefile features (variable resolution)
+
+**Key Design Challenge**: These sources have vastly different resolutions - from GSHHS crude (0.1° vertex spacing) to ENC charts (sub-meter accuracy). The abstraction must handle this resolution diversity intelligently.
 
 ### Unified Feature Model
 
@@ -118,7 +119,7 @@ public:
     // Data source information
     virtual std::string GetDataSource() const = 0;
     virtual int GetQualityLevel() const = 0;
-    virtual double GetDataAccuracy() const = 0;
+    virtual double GetResolution() const = 0;  // Average spacing between vertices in degrees
     
     // Feature-specific attributes
     virtual std::map<std::string, std::any> GetAttributes() const = 0;
@@ -130,12 +131,16 @@ private:
     std::vector<wxRealPoint> m_vertices;
     int m_gshhsLevel; // 0=land, 1=lake, 2=island_in_lake, etc.
     bool m_isLand;    // true=land, false=water
+    double m_resolution; // Average distance between vertices in degrees
+    std::string m_dataSource; // "GSHHS", "OSMSHP", "ENC", etc.
     
 public:
     FeatureType GetFeatureType() const override { return FeatureType::COASTLINE; }
     bool IsLandBoundary() const { return m_isLand; }
     int GetGshhsHierarchy() const { return m_gshhsLevel; }
     const std::vector<wxRealPoint>& GetVertices() const { return m_vertices; }
+    double GetResolution() const override { return m_resolution; }
+    std::string GetDataSource() const override { return m_dataSource; }
 };
 
 class DepthFeature : public SpatialFeature {
@@ -176,8 +181,8 @@ public:
         GSHHS,
         OSMSHP,
         S57_ENC,
-        SHAPEFILE,
-        PLUGIN
+        SHAPEFILE
+        // PLUGIN support to be added after further analysis
     };
     
     virtual ~SpatialDataSource() = default;
@@ -207,12 +212,16 @@ public:
     SpatialDataSource* GetBestSource(const LLBBox& region, 
                                     SpatialFeature::FeatureType type) const;
     
-    // Priority order: ENC > OSMSHP > GSHHS (where available)
-    std::vector<SpatialDataSource*> GetPrioritizedSources(
+    // Get all available data sources for a region, ordered by resolution
+    std::vector<SpatialDataSource*> GetAvailableSources(
         const LLBBox& region) const;
     
-    // Register plugin data sources at runtime
-    void RegisterPluginSource(std::unique_ptr<SpatialDataSource> source);
+    // Let user/application decide which source to use based on specific needs
+    std::vector<SpatialDataSource*> GetSourcesByType(
+        SpatialDataSource::SourceType type) const;
+    
+    // Register plugin data sources at runtime (future enhancement)
+    // void RegisterPluginSource(std::unique_ptr<SpatialDataSource> source);
 };
 ```
 
@@ -290,7 +299,61 @@ public:
 };
 ```
 
-### S-57 ENC Object Mapping
+### Data Source Selection Strategy
+
+The key insight is that **pathfinding should use the highest resolution data available**, regardless of display scale. However, we cannot make assumptions about which data source is "better" between OSMSHP (crowdsourced) and ENC (official) since they have different characteristics:
+
+```cpp
+class DataSourceStrategy {
+public:
+    // Simple approach: Let the application choose the strategy
+    enum class SelectionMode {
+        HIGHEST_RESOLUTION,    // Use finest resolution available
+        SPECIFIC_SOURCE,       // Use only a particular source type
+        ALL_AVAILABLE         // Return all sources, let caller decide
+    };
+    
+    static std::vector<SpatialDataSource*> SelectSources(
+        const DataSourceManager& manager,
+        const LLBBox& region,
+        SelectionMode mode,
+        SpatialDataSource::SourceType preferredType = SpatialDataSource::SourceType::GSHHS) {
+        
+        switch (mode) {
+            case SelectionMode::HIGHEST_RESOLUTION:
+                return SelectByResolution(manager, region);
+            case SelectionMode::SPECIFIC_SOURCE:
+                return manager.GetSourcesByType(preferredType);
+            case SelectionMode::ALL_AVAILABLE:
+                return manager.GetAvailableSources(region);
+        }
+        return {};
+    }
+    
+private:
+    static std::vector<SpatialDataSource*> SelectByResolution(
+        const DataSourceManager& manager, const LLBBox& region) {
+        auto sources = manager.GetAvailableSources(region);
+        
+        // Sort by resolution (finest first)
+        std::sort(sources.begin(), sources.end(), 
+            [](const SpatialDataSource* a, const SpatialDataSource* b) {
+                // This is a simplification - actual resolution comparison 
+                // would need to consider the source type and quality level
+                return a->GetQualityLevel() > b->GetQualityLevel();
+            });
+        
+        return sources;
+    }
+};
+```
+
+**Key Design Principles**:
+
+1. **No Assumptions About Data Quality**: Don't try to rank OSMSHP vs ENC - they serve different purposes
+2. **Application-Driven Selection**: Let the pathfinding algorithm specify what it needs
+3. **Resolution-Based When Possible**: Within a data source type, higher resolution is generally better
+4. **Fallback Capability**: Always provide GSHHS as global fallback
 
 ```cpp
 // S-57 specific feature extraction
@@ -383,42 +446,38 @@ extern "C" bool PlugIn_GSHHS_CrossesLand(double lat1, double lon1,
 - Phase 2: Plugins can opt-in to enhanced spatial API
 - Phase 3: Full migration with performance monitoring
 
-#### 2. Data Source Priority Logic
+#### 2. Data Source Selection Logic
 
-Based on Task 1.1 findings, implement intelligent data source selection:
+Based on Task 1.1 findings, implement flexible data source selection without assumptions about relative quality:
 
 ```cpp
-class DataSourcePriority {
+class DataSourceSelection {
 public:
-    // Priority order based on data quality analysis from Task 1.1
-    static int GetPriority(SpatialDataSource::SourceType type, 
-                          const LLBBox& region) {
-        switch (type) {
-            case SpatialDataSource::SourceType::S57_ENC:
-                return 100;  // Highest - official hydrographic office data
-            case SpatialDataSource::SourceType::OSMSHP:
-                return 80;   // High - good OSM coverage areas
-            case SpatialDataSource::SourceType::GSHHS:
-                return 60;   // Medium - global fallback
-            case SpatialDataSource::SourceType::SHAPEFILE:
-                return 40;   // Lower - generic shapefiles
-            case SpatialDataSource::SourceType::PLUGIN:
-                return 20;   // Variable - depends on plugin quality
-        }
-        return 0;
+    // Don't make assumptions about which source is "better" - let application decide
+    static std::vector<SpatialDataSource*> GetSourcesForPathfinding(
+        const DataSourceManager& manager, const LLBBox& region) {
+        
+        // For pathfinding: get ALL available sources, ordered by resolution
+        auto sources = manager.GetAvailableSources(region);
+        
+        // Sort by resolution within each source type
+        std::sort(sources.begin(), sources.end(), 
+            [](const SpatialDataSource* a, const SpatialDataSource* b) {
+                // First group by source type, then by quality level within type
+                if (a->GetSourceType() != b->GetSourceType()) {
+                    return static_cast<int>(a->GetSourceType()) < static_cast<int>(b->GetSourceType());
+                }
+                return a->GetQualityLevel() > b->GetQualityLevel();
+            });
+        
+        return sources;
     }
     
-    // Regional adjustments based on known data quality
-    static int AdjustForRegion(int basePriority, 
-                              SpatialDataSource::SourceType type,
-                              const LLBBox& region) {
-        // Boost OSMSHP priority in regions with known good coverage
-        if (type == SpatialDataSource::SourceType::OSMSHP) {
-            if (IsWellMappedRegion(region)) {
-                return basePriority + 10;
-            }
-        }
-        return basePriority;
+    // For display: might want different logic (but that's not our focus)
+    static SpatialDataSource* GetSourceForDisplay(
+        const DataSourceManager& manager, const LLBBox& region, double scale) {
+        // This would be display-specific logic (future enhancement)
+        return nullptr;
     }
 };
 ```
@@ -511,56 +570,39 @@ private:
 };
 ```
 
-#### 6. Plugin Integration Framework
+#### 6. Future Plugin Integration
 
-**Extensible Plugin Support**: Enable plugins to contribute spatial data as identified in Task 1.1:
-
-```cpp
-// Plugin registration interface
-class PluginSpatialInterface {
-public:
-    virtual ~PluginSpatialInterface() = default;
-    
-    // Allow plugins to provide custom spatial data
-    virtual std::vector<std::unique_ptr<SpatialFeature>> 
-        GetSpatialFeatures(const LLBBox& bounds) = 0;
-    
-    // Plugin metadata
-    virtual std::string GetPluginName() const = 0;
-    virtual int GetDataQuality() const = 0;
-    virtual LLBBox GetDataCoverage() const = 0;
-};
-
-// Registration mechanism
-extern "C" void RegisterPluginSpatialData(PluginSpatialInterface* interface) {
-    g_DataSourceManager->RegisterPluginSource(
-        std::make_unique<PluginDataSourceAdapter>(interface));
-}
-```
+**Note**: Plugin spatial data integration requires further analysis of the plugin architecture and is deferred to future tasks. Current focus is on the four well-understood data sources: GSHHS, OSMSHP, S-57/ENC, and generic Shapefiles.
 
 ### Technical Decisions and Rationale
 
-#### 1. Why Hierarchical Feature Types?
+#### 1. Why No Assumptions About Data Source Quality?
 
-The analysis revealed that different data sources have very different feature classification schemes:
+You're absolutely right that we can't easily compare OSMSHP (crowdsourced) vs ENC (official) data quality:
 
-- **GSHHS**: 5 hierarchical levels (land/lake/island/pond)
-- **S-57**: 100+ object classes with complex attributes  
-- **OSMSHP**: Simple land/water binary classification
+- **OSMSHP**: Quality depends on local crowdsourcing - excellent in some areas, poor in others
+- **ENC**: Official hydrographic office data but may not be available or up-to-date everywhere  
+- **GSHHS**: Global coverage but lower resolution and accuracy
 
-The unified model preserves this richness while providing common interfaces.
+Rather than guess which is "better", the abstraction provides all available sources and lets the application decide based on its specific needs.
 
-#### 2. Why Priority-Based Data Source Selection?
+#### 2. Why Resolution-Independent Pathfinding?
 
-Task 1.1 revealed that users have different combinations of data sources, and forcing cross-referencing would be impractical. Priority-based selection automatically uses the best available data without requiring all sources to be present.
+For navigation safety, pathfinding should use the highest resolution data available, completely independent of display scale:
 
-#### 3. Why Adapter Pattern for Data Sources?
+- A world-view chart display still needs precise pathfinding for safety
+- Display scale and computational accuracy are separate concerns
+- Always err on the side of using more detailed data for route calculation
 
-The diverse data formats (binary GSHHS, GDAL S-57, Shapefile) require different loading mechanisms. The adapter pattern allows the system to be extended with new formats without modifying core logic.
+#### 3. Why Application-Driven Selection?
 
-#### 4. Why Streaming Feature Extraction?
+Different use cases need different data source strategies:
 
-Large ENC charts or high-resolution coastline data can contain millions of features. Streaming extraction prevents memory exhaustion and enables progressive loading based on viewport requirements.
+- **Pathfinding**: Wants highest resolution available
+- **Chart Display**: Might want scale-appropriate data for performance
+- **Route Validation**: Might want to check against multiple sources
+
+The abstraction provides the tools but doesn't impose policy.
 
 ### Next Steps for Task 1.3
 
