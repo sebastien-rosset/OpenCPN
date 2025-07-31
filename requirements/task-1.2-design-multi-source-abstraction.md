@@ -143,17 +143,30 @@ Based on analysis of existing OpenCPN systems, the multi-source spatial abstract
 
 ```cpp
 // Interface that existing data structures can implement directly
+// 
+// TWO-STAGE SPATIAL QUERY ARCHITECTURE:
+// 1. R-tree spatial index provides fast pre-filtering using GetSegmentBounds()
+// 2. IntersectsLine() performs precise intersection testing on surviving candidates
+//
+// PERFORMANCE FLOW:
+// FastCrossesLand() -> R-tree.Query() -> candidates -> IntersectsLine() for each candidate
+//
+// This eliminates O(n) linear search while preserving existing intersection algorithms
 class ICoastlineGeometry {
 public:
     virtual ~ICoastlineGeometry() = default;
     
-    // Essential spatial queries - implemented by existing structures
+    // STAGE 2: Precise intersection testing - called AFTER R-tree pre-filtering
+    // This delegates to existing CrossesLand()/crossing1() implementations
+    // Only called on geometries that survived spatial pre-filtering
     virtual bool IntersectsLine(double lat1, double lon1, double lat2, double lon2) const = 0;
+    
     virtual LLBBox GetBoundingBox() const = 0;
     virtual std::string GetDataSourceName() const = 0;
     virtual int GetQualityLevel() const = 0;
     
-    // For spatial indexing - return segment bounding boxes without copying data
+    // STAGE 1: Spatial indexing - subdivide large polygons into smaller bounding boxes
+    // Used by R-tree for fast spatial pre-filtering before precise intersection testing
     virtual std::vector<LLBBox> GetSegmentBounds() const = 0;
     
     // Direct access to existing geometry representations
@@ -170,7 +183,14 @@ public:
     explicit GshhsPolyCellAdapter(GshhsPolyCell* cell) : m_originalCell(cell) {}
     
     bool IntersectsLine(double lat1, double lon1, double lat2, double lon2) const override {
-        // Delegate to existing GSHHS intersection logic - no data duplication
+        // STAGE 2: Precise intersection testing using existing GSHHS algorithm
+        // This is called ONLY on candidates that survived R-tree spatial pre-filtering
+        // 
+        // PERFORMANCE CONTEXT:
+        // - Before: O(n) - this was called on ALL GSHHS cells
+        // - After: O(log n + k) - R-tree reduces candidates to small set, then we test each
+        // 
+        // No data duplication - delegates to existing proven intersection code
         return m_originalCell->crossing1(/* trajectory parameters */);
     }
     
@@ -180,7 +200,18 @@ public:
     }
     
     std::vector<LLBBox> GetSegmentBounds() const override {
-        // ADAPTIVE SUBDIVISION: Break large polygons into spatially coherent segments
+        // STAGE 1: Spatial indexing preparation - subdivide large polygons for R-tree
+        //
+        // PURPOSE: Large coastline polygons (e.g., entire Pacific coast) create massive
+        // bounding boxes that provide no spatial discrimination in R-tree queries.
+        // 
+        // SOLUTION: Break large polygons into ~1° segments for efficient spatial filtering
+        // 
+        // PERFORMANCE IMPACT:
+        // - Without subdivision: R-tree returns "entire Pacific coast" for any West Coast query
+        // - With subdivision: R-tree returns only nearby ~111km coastal segments
+        //
+        // NOTE: Original geometry stays intact - only bounding boxes are subdivided
         std::vector<LLBBox> bounds;
         const contour_list& polygons = m_originalCell->getPoly1();
         
@@ -461,17 +492,26 @@ public:
     }
     
     // Fast spatial query using existing data - no copies
+    // 
+    // TWO-STAGE PERFORMANCE OPTIMIZATION:
+    // Stage 1: R-tree spatial pre-filtering (O(log n))
+    // Stage 2: Precise intersection testing on candidates (O(k) where k << n)
+    //
+    // TOTAL COMPLEXITY: O(log n + k) vs original O(n) linear search
     bool FastCrossesLand(double lat1, double lon1, double lat2, double lon2) {
         LLBBox queryBounds = LLBBox::FromTwoPoints(lat1, lon1, lat2, lon2);
         
-        // Pre-filter using R-tree - only IndexEntry structs are small
+        // STAGE 1: Fast spatial pre-filtering using R-tree index
+        // Query subdivided bounding boxes to find potential intersections
+        // This eliminates most coastline polygons without expensive intersection testing
         auto candidates = m_rtree.Query(queryBounds);
         
         if (candidates.empty()) {
-            return false;  // Fast path - no nearby coastlines
+            return false;  // ULTRA-FAST PATH: No coastlines near trajectory
         }
         
-        // Test intersection using existing geometry implementations
+        // STAGE 2: Precise intersection testing using existing algorithms
+        // Only test candidates that survived spatial pre-filtering
         // DUPLICATE ELIMINATION: Same geometry may appear multiple times due to subdivision
         std::unordered_set<ICoastlineGeometry*> testedGeometries;
         
@@ -482,7 +522,8 @@ public:
             }
             testedGeometries.insert(entry.geometry);
             
-            // Test against ENTIRE original geometry - subdivision is only for indexing
+            // Delegate to existing CrossesLand()/crossing1() implementations
+            // This maintains functional correctness while benefiting from spatial acceleration
             if (TestCandidateIntersection(entry, lat1, lon1, lat2, lon2)) {
                 return true;
             }
@@ -503,11 +544,18 @@ private:
         }
     }
     
-    // ENHANCED INTERSECTION TESTING: Handle subdivided segments efficiently
+    // STAGE 2 COORDINATOR: Bridge between R-tree results and existing intersection algorithms
     bool TestCandidateIntersection(const IndexEntry& candidate, 
                                  double lat1, double lon1, double lat2, double lon2) {
-        // For subdivided segments, we still test against the ENTIRE original geometry
-        // The subdivision is only for spatial pre-filtering, not geometric processing
+        // IMPORTANT: Test against ENTIRE original geometry, not just the subdivided segment
+        // 
+        // SUBDIVISION CONTEXT:
+        // - GetSegmentBounds() subdivided large polygons into small bounding boxes
+        // - R-tree identified which subdivided boxes intersect the query
+        // - But intersection testing must use the COMPLETE original polygon
+        // 
+        // DELEGATES TO: existing CrossesLand()/crossing1() implementations
+        // PRESERVES: functional correctness of existing proven algorithms
         return candidate.geometry->IntersectsLine(lat1, lon1, lat2, lon2);
     }
     
@@ -515,6 +563,55 @@ private:
     std::vector<GshhsPolyCell*> GetExistingGshhsCells();
     std::vector<ShapeBaseChart*> GetExistingShapeCharts();
     std::vector<s57chart*> GetExistingS57Charts();
+};
+```
+
+### Complete Two-Stage Spatial Query Architecture
+
+**ARCHITECTURE SUMMARY**: The R-tree spatial indexing works in conjunction with existing intersection algorithms, not as a replacement:
+
+```cpp
+// COMPLETE FLOW: How spatial acceleration preserves existing algorithms
+// 
+// 1. BUILD PHASE (one-time setup):
+//    a) GetSegmentBounds() subdivides large polygons into ~1° bounding boxes
+//    b) R-tree indexes these small bounding boxes (not the original geometry)
+//    c) Original polygon data remains unchanged and uncopied
+//
+// 2. QUERY PHASE (every CrossesLand call):
+//    a) R-tree.Query() finds subdivided boxes that intersect trajectory (O(log n))
+//    b) Gather unique geometry objects from surviving candidates
+//    c) IntersectsLine() tests each geometry using existing algorithms (O(k))
+//    d) Return true if any geometry intersects
+//
+// PERFORMANCE TRANSFORMATION:
+// - Original: Test every polygon in dataset (O(n))
+// - New: Test only nearby polygons found by spatial index (O(log n + k))
+// - Typical case: k (nearby polygons) << n (total polygons)
+
+class CompleteSpacialQueryExample {
+public:
+    static bool DemonstrateQueryFlow(double lat1, double lon1, double lat2, double lon2) {
+        
+        // EXAMPLE: Query near San Francisco Bay
+        
+        // STAGE 1: R-tree spatial pre-filtering
+        // Query finds subdivided bounding boxes that intersect trajectory
+        // WITHOUT subdivision: Would return "entire Pacific coast polygon" (massive)
+        // WITH subdivision: Returns only ~5 bounding boxes near SF Bay (~555km total)
+        auto candidates = g_spatialIndex.Query(trajectoryBounds);
+        
+        // STAGE 2: Precise intersection testing
+        // Test intersection against complete original polygons (not subdivided pieces)
+        for (const auto& candidate : candidates) {
+            // This calls existing CrossesLand()/crossing1() - no changes to intersection logic
+            if (candidate.geometry->IntersectsLine(lat1, lon1, lat2, lon2)) {
+                return true;  // Found intersection using proven existing algorithm
+            }
+        }
+        
+        return false;
+    }
 };
 ```
 
