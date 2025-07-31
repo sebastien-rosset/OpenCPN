@@ -76,102 +76,376 @@ We may want to extract the following ENC features:
 
 ## Design Documents
 
+### OpenCPN's Existing Coastline Architecture
+
+**Critical Discovery**: OpenCPN already has significant coastline processing infrastructure, but each chart type uses separate pipelines with performance bottlenecks for spatial queries.
+
+#### Existing Common Data Structures
+
+All chart types converge on shared polygon representations for rendering:
+
+```cpp
+// SHARED geometric representation across all chart types:
+typedef std::vector<wxRealPoint> contour;           // Single polygon boundary  
+typedef std::vector<contour> contour_list;          // Multiple polygons with holes
+```
+
+Used by:
+
+- **GSHHS**: `contour_list poly1, poly2, poly3, poly4, poly5` (land/water hierarchy levels)
+- **OSMSHP/Shapefiles**: Same `contour` and `contour_list` internal representation
+- **S-57/ENC**: OGR geometries converted to similar structures via `OGRPolygon`
+
+#### Existing Land Detection Functions
+
+**GSHHS System**:
+
+- `PlugIn_GSHHS_CrossesLand(lat1, lon1, lat2, lon2)` - Global plugin API (GSHHS only)
+- `getCoasts()` method returns `std::vector<wxLineF>` line segments
+- Quality level functions: `PlugInGetMinAvailableGshhgQuality()`, `PlugInGetMaxAvailableGshhgQuality()`
+
+**OSMSHP/Shapefile System**:
+
+- `ShapeBaseChart::CrossesLand(lat1, lon1, lat2, lon2)` - **Exists but not exposed to plugin API!**
+- Tiled organization with 1×1° or 10×10° cells
+- **Performance Issue**: Functionally working but unacceptable performance for OSMSHP files
+
+**S-57/ENC System**:
+
+- Complex OGR geometry processing for **LNDARE** (land areas) and **COALNE** (coastline) objects
+- No unified `CrossesLand()` API currently exposed
+- **Performance Unknown**: ENC chart `CrossesLand()` performance not yet tested
+
+#### Key Performance Challenge
+
+**The core problem**: While land detection functions exist, they use **O(n) linear polygon intersection algorithms** that become prohibitively slow with high-resolution data:
+
+- **GSHHS**: Acceptable performance due to lower resolution
+- **OSMSHP**: **Unacceptable performance** despite functional correctness  
+- **S-57/ENC**: Performance characteristics unknown but likely similar issues
+
 ### Core Architecture Overview
 
-Based on Task 1.1 analysis, the multi-source spatial abstraction must handle four well-understood data systems:
+Based on analysis of existing OpenCPN systems, the multi-source spatial abstraction must handle four data systems with a **unified high-performance indexing layer**:
 
 1. **GSHHS** - Global polygon coastlines (5 quality levels: crude=1:50M to full=1:200K)
 2. **OSMSHP** - OpenStreetMap shapefile coastlines (5 quality levels: 10x10° to 1x1° tiles)
 3. **S-57/ENC** - Professional vector charts (variable resolution, typically 1:500 to 1:50,000)
 4. **Shapefile Basemaps** - Generic shapefile features (variable resolution)
 
-**Key Design Challenge**: These sources have vastly different resolutions - from GSHHS crude (0.1° vertex spacing) to ENC charts (sub-meter accuracy). The abstraction must handle this resolution diversity intelligently.
+**Key Design Challenge**: Replace O(n) linear intersection algorithms with **efficient spatial indexing (R-tree)** to achieve acceptable performance across all resolution levels, from GSHHS crude (0.1° vertex spacing) to ENC charts (sub-meter accuracy).
 
-### Unified Feature Model
+### Revised Unified Feature Model - Zero-Copy Interface Design
+
+**Key Insight**: Rather than copying data into common structures, design interfaces that existing OpenCPN data structures can implement directly. This eliminates data duplication and leverages existing optimized memory layouts.
+
+**Core Principle**: **Zero-Copy Abstraction** - Spatial indexing operates over existing data structures without duplication.
 
 ```cpp
-// Core spatial feature abstraction
-class SpatialFeature {
+// Interface that existing data structures can implement directly
+class ICoastlineGeometry {
 public:
-    enum class FeatureType {
-        COASTLINE,           // Land/water boundary
-        DEPTH_CONTOUR,       // Depth lines and areas
-        NAVIGATION_HAZARD,   // Rocks, wrecks, obstructions
-        NAVIGATION_AID,      // Lights, buoys, beacons
-        RESTRICTED_AREA,     // Traffic zones, military areas
-        INFRASTRUCTURE      // Bridges, cables, platforms
-    };
+    virtual ~ICoastlineGeometry() = default;
     
-    enum class GeometryType {
-        POINT,              // Single coordinate
-        POLYLINE,           // Line string
-        POLYGON,            // Closed area
-        MULTIPOLYGON        // Complex areas with holes
-    };
-    
-    virtual ~SpatialFeature() = default;
-    virtual FeatureType GetFeatureType() const = 0;
-    virtual GeometryType GetGeometryType() const = 0;
+    // Essential spatial queries - implemented by existing structures
+    virtual bool IntersectsLine(double lat1, double lon1, double lat2, double lon2) const = 0;
     virtual LLBBox GetBoundingBox() const = 0;
-    virtual bool IntersectsLine(const wxLineF& line) const = 0;
-    virtual double GetMinimumDistance(const wxRealPoint& point) const = 0;
-    
-    // Data source information
-    virtual std::string GetDataSource() const = 0;
+    virtual std::string GetDataSourceName() const = 0;
     virtual int GetQualityLevel() const = 0;
-    virtual double GetResolution() const = 0;  // Average spacing between vertices in degrees
     
-    // Feature-specific attributes
-    virtual std::map<std::string, std::any> GetAttributes() const = 0;
+    // For spatial indexing - return segment bounding boxes without copying data
+    virtual std::vector<LLBBox> GetSegmentBounds() const = 0;
+    
+    // Direct access to existing geometry representations
+    virtual const void* GetNativeGeometry() const = 0;
+    virtual std::string GetNativeType() const = 0;  // "contour_list", "OGRPolygon", etc.
 };
 
-// Specialized feature types
-class CoastlineFeature : public SpatialFeature {
+// Extend existing GSHHS structures to implement the interface
+class GshhsPolyCellAdapter : public ICoastlineGeometry {
 private:
-    std::vector<wxRealPoint> m_vertices;
-    int m_gshhsLevel; // 0=land, 1=lake, 2=island_in_lake, etc.
-    bool m_isLand;    // true=land, false=water
-    double m_resolution; // Average distance between vertices in degrees
-    std::string m_dataSource; // "GSHHS", "OSMSHP", "ENC", etc.
+    GshhsPolyCell* m_originalCell;  // Reference to existing data - NO COPY
     
 public:
-    FeatureType GetFeatureType() const override { return FeatureType::COASTLINE; }
-    bool IsLandBoundary() const { return m_isLand; }
-    int GetGshhsHierarchy() const { return m_gshhsLevel; }
-    const std::vector<wxRealPoint>& GetVertices() const { return m_vertices; }
-    double GetResolution() const override { return m_resolution; }
-    std::string GetDataSource() const override { return m_dataSource; }
+    explicit GshhsPolyCellAdapter(GshhsPolyCell* cell) : m_originalCell(cell) {}
+    
+    bool IntersectsLine(double lat1, double lon1, double lat2, double lon2) const override {
+        // Delegate to existing GSHHS intersection logic - no data duplication
+        return m_originalCell->crossing1(/* trajectory parameters */);
+    }
+    
+    LLBBox GetBoundingBox() const override {
+        // Use existing GSHHS bounding box calculation
+        return m_originalCell->GetBoundingBox();
+    }
+    
+    std::vector<LLBBox> GetSegmentBounds() const override {
+        // Extract bounding boxes from existing contour_list without copying vertices
+        std::vector<LLBBox> bounds;
+        const contour_list& polygons = m_originalCell->getPoly1();
+        for (const auto& contour : polygons) {
+            bounds.push_back(CalculateBounds(contour));  // Only copy bounding box, not vertices
+        }
+        return bounds;
+    }
+    
+    const void* GetNativeGeometry() const override {
+        return &m_originalCell->getPoly1();  // Direct access to existing contour_list
+    }
+    
+    std::string GetNativeType() const override { return "contour_list"; }
+    std::string GetDataSourceName() const override { return "GSHHS"; }
 };
 
-class DepthFeature : public SpatialFeature {
+// Extend existing ShapeBaseChart to implement the interface
+class ShapeBaseChartAdapter : public ICoastlineGeometry {
 private:
-    double m_depth;           // Depth in meters
-    bool m_isSafetyDepth;    // Is this a safety contour?
-    std::vector<wxRealPoint> m_vertices;
+    ShapeBaseChart* m_originalChart;  // Reference to existing data - NO COPY
     
 public:
-    FeatureType GetFeatureType() const override { return FeatureType::DEPTH_CONTOUR; }
-    double GetDepth() const { return m_depth; }
-    bool IsSafetyDepth() const { return m_isSafetyDepth; }
-    const std::vector<wxRealPoint>& GetVertices() const { return m_vertices; }
+    explicit ShapeBaseChartAdapter(ShapeBaseChart* chart) : m_originalChart(chart) {}
+    
+    bool IntersectsLine(double lat1, double lon1, double lat2, double lon2) const override {
+        // Use existing ShapeBaseChart::CrossesLand() - no data duplication
+        double lat1_copy = lat1, lon1_copy = lon1, lat2_copy = lat2, lon2_copy = lon2;
+        return m_originalChart->CrossesLand(lat1_copy, lon1_copy, lat2_copy, lon2_copy);
+    }
+    
+    std::vector<LLBBox> GetSegmentBounds() const override {
+        // Access existing shapefile contour_list structures directly
+        // Extract bounding boxes without copying polygon vertices
+        return ExtractShapefileBounds(*m_originalChart);
+    }
+    
+    const void* GetNativeGeometry() const override {
+        return m_originalChart;  // Direct access to existing ShapeBaseChart
+    }
+    
+    std::string GetNativeType() const override { return "ShapeBaseChart"; }
+    std::string GetDataSourceName() const override { return "OSMSHP"; }
 };
 
-class HazardFeature : public SpatialFeature {
+// Extend existing S-57 chart structures to implement the interface
+class S57ChartAdapter : public ICoastlineGeometry {
 private:
-    wxRealPoint m_position;
-    double m_depth;          // Depth of hazard (-1 if unknown)
-    std::string m_hazardType; // Rock, wreck, obstruction, etc.
+    s57chart* m_originalChart;  // Reference to existing data - NO COPY
     
 public:
-    FeatureType GetFeatureType() const override { return FeatureType::NAVIGATION_HAZARD; }
-    GeometryType GetGeometryType() const override { return GeometryType::POINT; }
-    const wxRealPoint& GetPosition() const { return m_position; }
-    double GetHazardDepth() const { return m_depth; }
-    const std::string& GetHazardType() const { return m_hazardType; }
+    explicit S57ChartAdapter(s57chart* chart) : m_originalChart(chart) {}
+    
+    bool IntersectsLine(double lat1, double lon1, double lat2, double lon2) const override {
+        // Implement using existing S-57 LNDARE object traversal
+        return CheckS57LandIntersection(m_originalChart, lat1, lon1, lat2, lon2);
+    }
+    
+    std::vector<LLBBox> GetSegmentBounds() const override {
+        // Extract bounding boxes from existing S-57 LNDARE objects
+        // Use existing OGR geometry without copying
+        return ExtractS57LandBounds(*m_originalChart);
+    }
+    
+    const void* GetNativeGeometry() const override {
+        return m_originalChart;  // Direct access to existing s57chart
+    }
+    
+    std::string GetNativeType() const override { return "s57chart"; }
+    std::string GetDataSourceName() const override { return "S-57/ENC"; }
 };
 ```
 
-### Data Source Discovery and Prioritization
+### Zero-Copy Spatial Indexing Strategy
+
+**Memory-Efficient Indexing**: Build R-tree indices over existing data without duplication:
+
+```cpp
+// Spatial index that references existing data structures
+class ZeroCopyCoastlineSpatialIndex {
+public:
+    struct IndexEntry {
+        LLBBox bounds;                    // Small bounding box - only thing we copy
+        ICoastlineGeometry* geometry;     // Reference to existing data - NO COPY
+        uint32_t segmentId;               // Index into existing structure
+    };
+    
+    // Build index from existing data structures without copying geometry
+    void IndexExistingDataSources() {
+        // Index existing GSHHS cells
+        for (auto* gshhsCell : GetExistingGshhsCells()) {
+            auto adapter = std::make_unique<GshhsPolyCellAdapter>(gshhsCell);
+            IndexGeometry(adapter.get());
+            m_adapters.push_back(std::move(adapter));  // Keep adapter alive, not the data
+        }
+        
+        // Index existing shapefile charts
+        for (auto* shapeChart : GetExistingShapeCharts()) {
+            auto adapter = std::make_unique<ShapeBaseChartAdapter>(shapeChart);
+            IndexGeometry(adapter.get());
+            m_adapters.push_back(std::move(adapter));
+        }
+        
+        // Index existing S-57 charts
+        for (auto* s57Chart : GetExistingS57Charts()) {
+            auto adapter = std::make_unique<S57ChartAdapter>(s57Chart);
+            IndexGeometry(adapter.get());
+            m_adapters.push_back(std::move(adapter));
+        }
+    }
+    
+    // Fast spatial query using existing data - no copies
+    bool FastCrossesLand(double lat1, double lon1, double lat2, double lon2) {
+        LLBBox queryBounds = LLBBox::FromTwoPoints(lat1, lon1, lat2, lon2);
+        
+        // Pre-filter using R-tree - only IndexEntry structs are small
+        auto candidates = m_rtree.Query(queryBounds);
+        
+        if (candidates.empty()) {
+            return false;  // Fast path - no nearby coastlines
+        }
+        
+        // Test intersection using existing geometry implementations
+        for (const auto& entry : candidates) {
+            // This calls existing CrossesLand()/crossing1() methods - no data copying
+            if (entry.geometry->IntersectsLine(lat1, lon1, lat2, lon2)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+private:
+    RTree<IndexEntry> m_rtree;  // Only stores small IndexEntry structs
+    std::vector<std::unique_ptr<ICoastlineGeometry>> m_adapters;  // Adapters, not data
+    
+    void IndexGeometry(ICoastlineGeometry* geometry) {
+        // Only copy small bounding boxes into index, not geometry data
+        auto bounds = geometry->GetSegmentBounds();
+        for (size_t i = 0; i < bounds.size(); ++i) {
+            IndexEntry entry{bounds[i], geometry, static_cast<uint32_t>(i)};
+            m_rtree.Insert(bounds[i], entry);
+        }
+    }
+    
+    // Get references to existing data structures - no ownership transfer
+    std::vector<GshhsPolyCell*> GetExistingGshhsCells();
+    std::vector<ShapeBaseChart*> GetExistingShapeCharts();
+    std::vector<s57chart*> GetExistingS57Charts();
+};
+```
+
+### Zero-Copy Interface Implementation Strategy
+
+**Core Philosophy**: Make existing OpenCPN data structures implement spatial interfaces directly, eliminating the need for data copying or conversion.
+
+#### Extending Existing Data Structures
+
+Rather than creating new data structures, extend existing ones to implement the `ICoastlineGeometry` interface:
+
+```cpp
+// Option A: Extend existing classes (if possible without breaking compatibility)
+class GshhsPolyCell : public ICoastlineGeometry {
+    // Existing GSHHS implementation remains unchanged
+    // Add interface methods that delegate to existing functionality
+public:
+    // Existing methods remain unchanged...
+    std::vector<wxLineF> *getCoasts() { return &coasts; }
+    contour_list &getPoly1() { return poly1; }
+    
+    // New interface methods - no data duplication
+    bool IntersectsLine(double lat1, double lon1, double lat2, double lon2) const override {
+        return crossing1(/* convert parameters to existing format */);
+    }
+    
+    std::vector<LLBBox> GetSegmentBounds() const override {
+        // Calculate bounds from existing contour_list data
+        std::vector<LLBBox> bounds;
+        for (const auto& contour : poly1) {
+            bounds.push_back(CalculateContourBounds(contour));
+        }
+        return bounds;
+    }
+    
+    const void* GetNativeGeometry() const override { return &poly1; }
+    std::string GetNativeType() const override { return "contour_list"; }
+};
+
+// Option B: Non-intrusive adapter pattern (safer for existing code)
+class GshhsAdapter {
+private:
+    GshhsPolyCell* m_cell;  // Reference to existing data
+    
+public:
+    explicit GshhsAdapter(GshhsPolyCell* cell) : m_cell(cell) {}
+    
+    // Implement ICoastlineGeometry interface by delegating to existing methods
+    bool IntersectsLine(double lat1, double lon1, double lat2, double lon2) const {
+        return m_cell->crossing1(/* parameters */);
+    }
+    
+    // Access existing data structures directly
+    const contour_list& GetExistingContours() const { return m_cell->getPoly1(); }
+    const std::vector<wxLineF>& GetExistingCoasts() const { return *m_cell->getCoasts(); }
+};
+```
+
+#### Interface-Based Spatial Indexing
+
+**Universal Indexing**: Single indexing system works with all data types through interfaces:
+
+```cpp
+class UniversalCoastlineIndex {
+public:
+    // Index any object that implements ICoastlineGeometry
+    void AddGeometry(ICoastlineGeometry* geometry) {
+        // Extract bounding boxes without copying underlying data
+        auto segmentBounds = geometry->GetSegmentBounds();
+        
+        for (size_t i = 0; i < segmentBounds.size(); ++i) {
+            IndexEntry entry{segmentBounds[i], geometry, static_cast<uint32_t>(i)};
+            m_rtree.Insert(segmentBounds[i], entry);
+        }
+    }
+    
+    // Works with any geometry type - GSHHS, OSMSHP, S-57, etc.
+    bool CrossesLand(double lat1, double lon1, double lat2, double lon2) {
+        auto candidates = m_rtree.Query(LLBBox::FromTwoPoints(lat1, lon1, lat2, lon2));
+        
+        for (const auto& candidate : candidates) {
+            // Polymorphic call - works with any implementation
+            if (candidate.geometry->IntersectsLine(lat1, lon1, lat2, lon2)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+private:
+    struct IndexEntry {
+        LLBBox bounds;              // Only copy small bounding box
+        ICoastlineGeometry* geometry; // Reference to existing data
+        uint32_t segmentId;
+    };
+    
+    RTree<IndexEntry> m_rtree;
+};
+
+// Factory for creating appropriate adapters
+class GeometryAdapterFactory {
+public:
+    static std::unique_ptr<ICoastlineGeometry> CreateAdapter(ChartBase* chart) {
+        // Detect chart type and create appropriate adapter
+        if (auto* gshhsChart = dynamic_cast<GSHHSChart*>(chart)) {
+            return std::make_unique<GshhsAdapter>(gshhsChart->getCurrentCell());
+        }
+        if (auto* shapeChart = dynamic_cast<ShapeBaseChart*>(chart)) {
+            return std::make_unique<ShapeBaseChartAdapter>(shapeChart);
+        }
+        if (auto* s57Chart = dynamic_cast<s57chart*>(chart)) {
+            return std::make_unique<S57ChartAdapter>(s57Chart);
+        }
+        return nullptr;
+    }
+};
+```
 
 ```cpp
 // Data source management
@@ -482,32 +756,87 @@ public:
 };
 ```
 
-#### 3. Memory Management Integration
+#### 3. Zero-Copy Memory Management Integration
 
-**Leverage Existing Caching**: Build upon the existing chart caching infrastructure discovered in Task 1.1:
+**Eliminate Data Duplication**: Build upon existing OpenCPN data structures without copying:
 
 ```cpp
-class UnifiedSpatialCache {
+class ZeroCopyUnifiedSpatialCache {
 private:
-    // Integrate with existing OpenCPN cache patterns
-    std::unordered_map<std::string, std::weak_ptr<SpatialFeature>> m_featureCache;
+    // Only cache adapters and small metadata - never duplicate geometry data
+    std::unordered_map<std::string, std::weak_ptr<ICoastlineGeometry>> m_adapterCache;
     std::chrono::time_point<std::chrono::steady_clock> m_lastCleanup;
     
 public:
-    // Respect existing memory pressure handling
+    // Respect existing memory pressure handling without additional memory burden
     void OnMemoryPressure() {
-        // Use same patterns as existing chart cache
-        CleanupExpiredFeatures();
-        ReduceCacheSize();
+        // Clean up adapter references, but don't affect original data
+        CleanupExpiredAdapters();
+        // Original data structures handle their own memory management
     }
     
-    // Coordinate with existing cache systems
-    void IntegrateWithChartCache(ChartBase* chart) {
-        // Share memory budget with chart rendering cache
-        // Avoid duplicate coastline data between chart and spatial cache
+    // Coordinate with existing chart systems - no additional memory usage
+    ICoastlineGeometry* GetGeometryAdapter(ChartBase* chart) {
+        if (auto* s57Chart = dynamic_cast<s57chart*>(chart)) {
+            // Return adapter that references existing S-57 data - no copying
+            return GetOrCreateS57Adapter(s57Chart);
+        }
+        if (auto* shapeChart = dynamic_cast<ShapeBaseChart*>(chart)) {
+            // Return adapter that references existing shapefile data - no copying  
+            return GetOrCreateShapeAdapter(shapeChart);
+        }
+        return nullptr;
+    }
+    
+    // Memory usage analysis
+    size_t GetMemoryFootprint() const {
+        // Should be minimal - only adapters and bounding boxes, no geometry data
+        return m_adapterCache.size() * sizeof(std::weak_ptr<ICoastlineGeometry>);
+    }
+    
+private:
+    ICoastlineGeometry* GetOrCreateS57Adapter(s57chart* chart);
+    ICoastlineGeometry* GetOrCreateShapeAdapter(ShapeBaseChart* chart);
+};
+
+// Integration with existing OpenCPN data lifecycle
+class ExistingDataIntegration {
+public:
+    // Hook into existing chart loading - no additional memory allocation
+    static void OnChartLoaded(ChartBase* chart) {
+        // Create adapter when chart is loaded, but don't copy data
+        auto* adapter = CreateAdapterForChart(chart);
+        if (adapter) {
+            g_SpatialIndex.AddGeometry(adapter);  // Index references, not data
+        }
+    }
+    
+    // Hook into existing chart unloading - clean up references
+    static void OnChartUnloaded(ChartBase* chart) {
+        // Remove adapter references when chart is unloaded
+        g_SpatialIndex.RemoveGeometry(chart);
+        // Original chart data cleanup handled by existing code
+    }
+    
+    // Work with existing OpenCPN memory management
+    static ICoastlineGeometry* CreateAdapterForChart(ChartBase* chart) {
+        // Factory pattern - create appropriate adapter without copying data
+        if (auto* gshhsReader = GetGshhsReader()) {
+            return new GshhsPolyCellAdapter(gshhsReader->getCurrentCell());
+        }
+        // ... other chart types
+        return nullptr;
     }
 };
 ```
+
+**Key Zero-Copy Principles**:
+
+1. **Adapter Pattern**: Create lightweight adapters over existing data structures
+2. **Reference-Only Indexing**: R-tree stores only bounding boxes and references, not geometry data
+3. **Lifecycle Integration**: Hook into existing chart loading/unloading without additional memory burden
+4. **Native Access**: Provide direct access to original data structures when needed
+5. **Memory Monitoring**: Track adapter overhead separately from original data memory usage
 
 #### 4. Coordinate System Integration
 
@@ -543,72 +872,287 @@ public:
 };
 ```
 
-#### 5. Performance Optimization Strategy
+#### 5. High-Performance Zero-Copy Spatial Indexing Implementation
 
-**Address Current Bottlenecks**: Based on the O(n) performance issues identified in Task 1.1:
+**The Core Performance Challenge**: Address the O(n) linear search bottleneck without data duplication:
 
 ```cpp
-class PerformanceOptimizedQuery {
+class ZeroCopyPerformanceOptimizedQuery {
 public:
-    // Replace linear search with spatial indexing
-    static bool FastCrossesLand(const wxLineF& trajectory,
-                               const std::vector<std::unique_ptr<SpatialFeature>>& features) {
-        // Pre-filter using bounding box intersection (O(log n))
-        auto candidates = m_spatialIndex.Query(trajectory.GetBoundingBox());
+    // Replace O(n) linear polygon search with O(log n) spatial indexing - no data copying
+    static bool FastCrossesLand(double lat1, double lon1, double lat2, double lon2,
+                               const ZeroCopyCoastlineSpatialIndex& spatialIndex) {
         
-        // Only test actual intersection for spatially nearby features
-        for (const auto& feature : candidates) {
-            if (feature->IntersectsLine(trajectory)) {
+        LLBBox trajectoryBounds = LLBBox::FromTwoPoints(lat1, lon1, lat2, lon2);
+        
+        // Step 1: Fast spatial pre-filtering using R-tree (O(log n))
+        // Only small IndexEntry structs are traversed - no geometry data
+        auto candidates = spatialIndex.QueryCandidates(trajectoryBounds);
+        
+        if (candidates.empty()) {
+            return false;  // No coastlines near trajectory - ultra-fast path
+        }
+        
+        // Step 2: Test intersection using existing geometry implementations
+        // Delegates to existing CrossesLand() methods - no data copying
+        for (const auto& candidate : candidates) {
+            if (candidate.geometry->IntersectsLine(lat1, lon1, lat2, lon2)) {
                 return true;
             }
         }
         return false;
     }
     
+    // Performance monitoring with memory efficiency validation
+    static void ValidateZeroCopyPerformance() {
+        // Measure memory usage - should be minimal overhead over original data
+        size_t baselineMemory = GetExistingChartMemoryUsage();
+        size_t indexedMemory = GetIndexedChartMemoryUsage();
+        size_t overhead = indexedMemory - baselineMemory;
+        
+        // Validate that overhead is minimal (only bounding boxes + adapters)
+        assert(overhead < baselineMemory * 0.05);  // <5% memory overhead
+        
+        // A/B test performance improvements
+        MeasureQueryPerformance();
+    }
+    
 private:
-    static SpatialIndex m_spatialIndex; // R-tree or similar
+    static ZeroCopyCoastlineSpatialIndex m_spatialIndex;
+};
+
+// Zero-copy indexing strategy for existing data structures
+class ZeroCopyCoastlineIndexBuilder {
+public:
+    // Build indices over existing data without copying geometry
+    void BuildIndexForExistingData() {
+        // Hook into existing GSHHS system
+        IndexExistingGshhsData();
+        
+        // Hook into existing shapefile system  
+        IndexExistingShapefileData();
+        
+        // Hook into existing S-57 system
+        IndexExistingS57Data();
+    }
+    
+    // Leverage existing GSHHS data structures
+    void IndexExistingGshhsData() {
+        // Access existing GSHHSChart instances without copying
+        for (auto* gshhsChart : GetLoadedGshhsCharts()) {
+            auto adapter = std::make_unique<GshhsPolyCellAdapter>(gshhsChart->getCurrentCell());
+            
+            // Only extract bounding boxes for R-tree - don't copy vertices
+            auto bounds = adapter->GetSegmentBounds();
+            for (const auto& bound : bounds) {
+                m_spatialIndex.Insert(bound, adapter.get());
+            }
+            
+            m_adapters.push_back(std::move(adapter));  // Keep adapter alive
+        }
+    }
+    
+    void IndexExistingShapefileData() {
+        // Access existing ShapeBaseChart contour_list structures directly
+        for (auto* shapeChart : GetLoadedShapeCharts()) {
+            auto adapter = std::make_unique<ShapeBaseChartAdapter>(shapeChart);
+            
+            // Build spatial index over existing polygon representations - no copying
+            auto bounds = adapter->GetSegmentBounds();
+            for (const auto& bound : bounds) {
+                m_spatialIndex.Insert(bound, adapter.get());
+            }
+            
+            m_adapters.push_back(std::move(adapter));
+        }
+    }
+    
+    void IndexExistingS57Data() {
+        // Access existing S-57 LNDARE object data directly
+        for (auto* s57Chart : GetLoadedS57Charts()) {
+            auto adapter = std::make_unique<S57ChartAdapter>(s57Chart);
+            
+            // Use existing OGR geometry bounding boxes - no data duplication
+            auto bounds = adapter->GetSegmentBounds();
+            for (const auto& bound : bounds) {
+                m_spatialIndex.Insert(bound, adapter.get());
+            }
+            
+            m_adapters.push_back(std::move(adapter));
+        }
+    }
+    
+private:
+    ZeroCopyCoastlineSpatialIndex m_spatialIndex;
+    std::vector<std::unique_ptr<ICoastlineGeometry>> m_adapters;
+    
+    // Get references to existing loaded data - no ownership transfer
+    std::vector<GSHHSChart*> GetLoadedGshhsCharts();
+    std::vector<ShapeBaseChart*> GetLoadedShapeCharts();
+    std::vector<s57chart*> GetLoadedS57Charts();
 };
 ```
+
+**Key Zero-Copy Performance Optimizations**:
+
+1. **Reference-Only Indexing**: R-tree stores only small bounding boxes and pointers, not geometry data
+2. **Existing Data Reuse**: Access existing `contour_list`, `OGRPolygon`, and GSHHS structures directly  
+3. **Minimal Memory Overhead**: <5% memory increase over baseline chart data
+4. **Adapter Lifecycle**: Lightweight adapters track existing data lifecycle automatically
+5. **Performance Validation**: Measure both speed improvements and memory efficiency
+6. **Backward Compatibility**: Preserve exact behavior of existing `PlugIn_GSHHS_CrossesLand()` without data changes
 
 #### 6. Future Plugin Integration
 
 **Note**: Plugin spatial data integration requires further analysis of the plugin architecture and is deferred to future tasks. Current focus is on the four well-understood data sources: GSHHS, OSMSHP, S-57/ENC, and generic Shapefiles.
 
+### Practical Zero-Copy Implementation Strategy
+
+#### Phase 1: Interface-Based Spatial Indexing with Zero Data Duplication
+
+**Immediate Goal**: Create high-performance spatial indexing over existing data structures without copying any geometry data.
+
+**Zero-Copy Approach**:
+
+1. **Non-Intrusive Adapters**: Create lightweight adapter classes that implement `ICoastlineGeometry` over existing structures
+2. **Reference-Only Indexing**: Build R-tree indices that store only bounding boxes and references to existing data
+3. **Existing API Preservation**: Keep `PlugIn_GSHHS_CrossesLand()` unchanged, route through spatial index for acceleration
+4. **Memory Efficiency Validation**: Ensure <5% memory overhead over baseline chart data
+
+**Implementation Steps**:
+
+```cpp
+// Step 1: Create adapters for existing data structures
+auto gshhsAdapter = std::make_unique<GshhsAdapter>(existingGshhsCell);
+auto osmshpAdapter = std::make_unique<ShapeBaseChartAdapter>(existingShapeChart);
+auto s57Adapter = std::make_unique<S57ChartAdapter>(existingS57Chart);
+
+// Step 2: Build spatial index over existing data - no copying
+UniversalCoastlineIndex spatialIndex;
+spatialIndex.AddGeometry(gshhsAdapter.get());  // References existing data
+spatialIndex.AddGeometry(osmshpAdapter.get());  // References existing data
+spatialIndex.AddGeometry(s57Adapter.get());    // References existing data
+
+// Step 3: Fast queries using existing data through spatial acceleration
+bool crossesLand = spatialIndex.CrossesLand(lat1, lon1, lat2, lon2);
+```
+
+**Implementation Priority**:
+
+- **OSMSHP: HIGHEST PRIORITY** - Fix unacceptable performance by indexing existing `ShapeBaseChart` data
+- **GSHHS**: Add to unified system for consistency, minimal performance improvement expected
+- **S-57/ENC**: Test performance and add indexing if needed
+
+#### Phase 2: Unified API with Data Source Selection
+
+**Goal**: Provide unified coastline access while maintaining zero data duplication.
+
+**Selection Strategies**:
+
+```cpp
+class ZeroCopyCoastlineAPI {
+public:
+    enum class SelectionMode {
+        FASTEST_AVAILABLE,      // Use best performing source (considers index effectiveness)
+        HIGHEST_RESOLUTION,     // Use most detailed source available
+        SPECIFIC_SOURCE,        // Use only specified source type
+        ALL_SOURCES_CONSENSUS   // Check multiple sources (for safety-critical apps)
+    };
+    
+    // Unified API - delegates to existing implementations via adapters
+    bool CrossesLand(double lat1, double lon1, double lat2, double lon2, 
+                    SelectionMode mode = SelectionMode::FASTEST_AVAILABLE) {
+        // Select appropriate adapter based on mode and regional availability
+        auto* selectedAdapter = SelectAdapter(lat1, lon1, lat2, lon2, mode);
+        
+        // Use spatial index for acceleration - no data copying
+        return m_spatialIndex.CrossesLandWithAdapter(lat1, lon1, lat2, lon2, selectedAdapter);
+    }
+    
+private:
+    UniversalCoastlineIndex m_spatialIndex;
+    std::vector<std::unique_ptr<ICoastlineGeometry>> m_adapters;  // References only
+    
+    ICoastlineGeometry* SelectAdapter(double lat, double lon, double lat2, double lon2, SelectionMode mode);
+};
+```
+
+#### Phase 3: Extended Feature Types (Future)
+
+**Scope**: After coastline performance is solved, extend to other spatial features using the same indexing approach:
+
+- Depth contours (DEPARE, DEPCNT from S-57)
+- Navigation hazards (OBSTRN, UWTROC, WRECKS)
+- Restricted areas (traffic separation zones, military areas)
+
 ### Technical Decisions and Rationale
 
-#### 1. Why No Assumptions About Data Source Quality?
+#### 1. Why Leverage Existing CrossesLand() Functions?
 
-You're absolutely right that we can't easily compare OSMSHP (crowdsourced) vs ENC (official) data quality:
+**Functional Correctness**: The existing `ShapeBaseChart::CrossesLand()` and `PlugIn_GSHHS_CrossesLand()` functions are **functionally correct** - they produce accurate land/water determinations. The problem is purely performance, not correctness.
 
-- **OSMSHP**: Quality depends on local crowdsourcing - excellent in some areas, poor in others
-- **ENC**: Official hydrographic office data but may not be available or up-to-date everywhere  
-- **GSHHS**: Global coverage but lower resolution and accuracy
+**Risk Reduction**: Rather than reimplement complex polygon intersection algorithms, build spatial indexing **around** existing proven code to accelerate it.
 
-Rather than guess which is "better", the abstraction provides all available sources and lets the application decide based on its specific needs.
+**Faster Implementation**: Creating efficient indices over existing data structures is faster than rebuilding geometry processing from scratch.
 
-#### 2. Why Resolution-Independent Pathfinding?
+#### 2. Why Focus on OSMSHP Performance First?
 
-For navigation safety, pathfinding should use the highest resolution data available, completely independent of display scale:
+**Known Performance Problem**: OSMSHP `CrossesLand()` has **unacceptable performance** despite functional correctness - this is the immediate pain point.
 
-- A world-view chart display still needs precise pathfinding for safety
-- Display scale and computational accuracy are separate concerns
-- Always err on the side of using more detailed data for route calculation
+**High Resolution Data**: OSMSHP provides excellent resolution coastline data in many areas, but can't be used due to performance limitations.
 
-#### 3. Why Application-Driven Selection?
+**Proven Approach**: Spatial indexing (R-trees) is a well-understood solution for accelerating polygon intersection queries.
 
-Different use cases need different data source strategies:
+#### 3. Why Application-Driven Source Selection?
 
-- **Pathfinding**: Wants highest resolution available
-- **Chart Display**: Might want scale-appropriate data for performance
-- **Route Validation**: Might want to check against multiple sources
+**No Universal "Best" Source**:
 
-The abstraction provides the tools but doesn't impose policy.
+- **OSMSHP**: Crowdsourced quality varies by region, but high resolution where good
+- **ENC**: Official data but limited coverage and potentially outdated
+- **GSHHS**: Global coverage but lower resolution
 
-### Next Steps for Task 1.3
+**Different Use Cases Need Different Sources**:
 
-This abstraction layer provides the foundation for the high-performance spatial indexing system in Task 1.3:
+- **Real-time pathfinding**: Needs fastest performance (might prefer GSHHS)
+- **Route planning**: Wants highest resolution available (might prefer OSMSHP/ENC)
+- **Safety validation**: Might want to check multiple sources for consensus
 
-1. **Spatial Index Integration**: The unified features will be indexed using R-tree or similar spatial acceleration structure
-2. **Query Optimization**: The common interface enables optimization of spatial queries across all data sources
-3. **Pathfinding API**: The feature abstractions provide the building blocks for safe route calculation
-4. **Performance Validation**: The adapter framework enables A/B testing between old and new systems
+### Next Steps for Task 1.3: High-Performance Spatial Indexing Implementation
+
+This abstraction design provides the foundation for implementing **efficient spatial indices** to solve the OSMSHP performance problem:
+
+#### Task 1.3 Primary Objectives - Zero-Copy Implementation
+
+1. **Zero-Copy R-tree Spatial Index Implementation**:
+   - Create spatial acceleration structure over existing `contour_list`, `OGRPolygon`, and GSHHS data
+   - Target 10-100x performance improvement for OSMSHP `CrossesLand()` queries **without data duplication**
+   - Preserve exact functional behavior of existing implementations
+   - Maintain <5% memory overhead over baseline chart data
+
+2. **Interface-Based Multi-Source Query Optimization**:
+   - Implement `ICoastlineGeometry` interfaces on existing data structures (adapter pattern)
+   - Add data source selection strategies that work through adapters, not data copies
+   - Enable unified plugin API: `PlugIn_UnifiedCrossesLand(lat1, lon1, lat2, lon2, source_priority)`
+   - Zero data duplication across all coastline data sources
+
+3. **Zero-Copy Performance Validation Framework**:
+   - A/B test indexed vs non-indexed performance with memory usage monitoring
+   - Validate that spatial indexing adds minimal memory overhead
+   - Measure query performance improvements for weather routing and pathfinding plugins
+   - Ensure functional correctness is preserved and no data is duplicated
+
+4. **Non-Intrusive Integration with Existing Systems**:
+   - Use adapter pattern to add interfaces to existing structures without modification
+   - Leverage existing `typedef std::vector<wxRealPoint> contour`, `ShapeBaseChart`, and `s57chart` data
+   - Hook into existing chart loading/unloading lifecycle without memory duplication
+   - Maintain backward compatibility with current `PlugIn_GSHHS_CrossesLand()` API
+
+#### Expected Performance Outcomes
+
+- **OSMSHP**: Unacceptable performance → Fast queries **with zero data duplication** (primary goal)
+- **S-57/ENC**: Unknown performance → Measured and optimized if needed **without copying geometry data**
+- **GSHHS**: Already acceptable → Integrated into unified API **through adapters, not copies**
+- **Memory Usage**: <5% increase over baseline due to indexing overhead only
+- **Overall**: Enable weather routing and pathfinding plugins to use highest resolution coastline data available **without memory duplication penalty**
+
+The spatial indexing implementation will directly address the core performance bottleneck that prevents effective use of high-resolution coastline data in OpenCPN's navigation and routing systems.
