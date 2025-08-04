@@ -186,6 +186,8 @@ Or, a more generic oneliner pushing the most recent _source.changes_ file:
 ```
   $ dput ppa:leamas-alec/opencpn $(ls -t ../*source.changes | head -1)
 ```
+8. Tag the published  release using a tag name like 
+   *ppa/5.12.2+dfsg-1-bpo20.04+2*
 
 [#test-build]
 == Local test build from existing upstream tag.
@@ -263,7 +265,8 @@ you might want to use another value (I typically use -j12).
 Rebasing patches could be more or less complicated. The canned workflow which
 works in most cases:
 
-    $ gbp pq import --force --time-machine=5
+    $ gbp pq import --force --time-machine=7
+    $ git rebase ubuntu/numbat   #  Packaging  branch we work in
     $ gbp pg export 
     $ git add debian/patches
     $ git commit -m "d/patches: rebased"
