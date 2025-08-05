@@ -57,6 +57,7 @@
 #include "GribSettingsDialog.h"
 #include "GribOverlayFactory.h"
 #include "GribUIDialog.h"
+#include "meteogram_integration.h"
 
 class GribPreferencesDialog;
 
@@ -164,6 +165,8 @@ public:
   void UpdatePrefs(GribPreferencesDialog *Pref);
 
   int m_MenuItem;
+  int m_MenuItemMeteogramCursor;
+  int m_MenuItemMeteogramRoute;
   bool m_DialogStyleChanged;
 
   wxSize m_coreToolbarSize;

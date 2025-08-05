@@ -124,6 +124,12 @@ set(SRC_GRIB
     src/IsoLine.cpp
     src/pi_ocpndc.cpp
     src/pi_ocpndc.h
+    src/meteogram_panel.h
+    src/meteogram_panel.cpp
+    src/meteogram_data.cpp
+    src/meteogram_renderer.cpp
+    src/meteogram_integration.h
+    src/meteogram_integration.cpp
 )
 
 if (OCPN_USE_GL)

@@ -181,6 +181,9 @@ bool grib_pi::DeInit(void) {
     m_pGribCtrlBar = nullptr;
   }
 
+  // Cleanup meteogram support
+  MeteogramIntegration::CleanupMeteogramSupport();
+
   delete m_pGRIBOverlayFactory;
   m_pGRIBOverlayFactory = nullptr;
 
@@ -455,6 +458,24 @@ void grib_pi::OnToolbarToolCallback(int id) {
     m_MenuItem = AddCanvasContextMenuItem(table, this);
     SetCanvasContextMenuItemViz(m_MenuItem, false);
 
+    // Initialize meteogram support and add context menu items
+    MeteogramIntegration::InitializeMeteogramSupport(m_pGribCtrlBar,
+                                                     GetFrameAuiManager());
+
+    // Add meteogram context menu items
+    wxMenu *dummy2 = new wxMenu(_T("Plugin"));
+    wxMenuItem *meteogramCursor = new wxMenuItem(
+        dummy2, ID_METEOGRAM_AT_CURSOR, wxString(_("Show Meteogram Here")),
+        wxEmptyString, wxITEM_NORMAL);
+    m_MenuItemMeteogramCursor = AddCanvasContextMenuItem(meteogramCursor, this);
+    SetCanvasContextMenuItemViz(m_MenuItemMeteogramCursor, false);
+
+    wxMenuItem *meteogramRoute = new wxMenuItem(
+        dummy2, ID_METEOGRAM_FOR_ROUTE, wxString(_("Show Meteogram for Route")),
+        wxEmptyString, wxITEM_NORMAL);
+    m_MenuItemMeteogramRoute = AddCanvasContextMenuItem(meteogramRoute, this);
+    SetCanvasContextMenuItemViz(m_MenuItemMeteogramRoute, false);
+
     // Create the drawing factory
     m_pGRIBOverlayFactory = new GRIBOverlayFactory(*m_pGribCtrlBar);
     m_pGRIBOverlayFactory->SetMessageFont();
@@ -502,6 +523,13 @@ void grib_pi::OnToolbarToolCallback(int id) {
             m_pGribCtrlBar->m_bGRIBActiveFile->GetRecordSetArrayPtr();
         if (rsa->GetCount() > 1) {
           SetCanvasContextMenuItemViz(m_MenuItem, true);
+          // Show meteogram menu items when GRIB data is available
+          SetCanvasContextMenuItemViz(m_MenuItemMeteogramCursor, true);
+
+          // Show route meteogram only if there's an active route
+          wxString activeRouteGUID = GetActiveRouteGUID();
+          SetCanvasContextMenuItemViz(m_MenuItemMeteogramRoute,
+                                      !activeRouteGUID.IsEmpty());
         }
         if (rsa->GetCount() >= 1) {  // XXX Should be only on Show
           SendTimelineMessage(m_pGribCtrlBar->TimelineTime());
@@ -532,6 +560,8 @@ void grib_pi::OnGribCtrlBarClose() {
   SaveConfig();
 
   SetCanvasContextMenuItemViz(m_MenuItem, false);
+  SetCanvasContextMenuItemViz(m_MenuItemMeteogramCursor, false);
+  SetCanvasContextMenuItemViz(m_MenuItemMeteogramRoute, false);
 
   RequestRefresh(m_parent_window);  // refresh main window
 
@@ -620,6 +650,25 @@ void grib_pi::SetCursorLatLon(double lat, double lon) {
 
 void grib_pi::OnContextMenuItemCallback(int id) {
   if (!m_pGribCtrlBar->m_bGRIBActiveFile) return;
+
+  // Handle meteogram menu items
+  if (id == m_MenuItemMeteogramCursor || id == m_MenuItemMeteogramRoute) {
+    // Map menu item IDs to meteogram IDs
+    int meteogramId;
+    if (id == m_MenuItemMeteogramCursor) {
+      meteogramId = ID_METEOGRAM_AT_CURSOR;
+    } else if (id == m_MenuItemMeteogramRoute) {
+      meteogramId = ID_METEOGRAM_FOR_ROUTE;
+    } else {
+      return;
+    }
+
+    // Handle the meteogram event
+    MeteogramIntegration::HandleMeteogramMenuEvent(meteogramId);
+    return;
+  }
+
+  // Handle original weather table callback
   m_pGribCtrlBar->ContextMenuItemCallback(id);
 }
 
