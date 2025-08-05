@@ -2310,7 +2310,7 @@ bool s52plib::RenderText(wxDC *pdc, S52_TextC *ptext, int x, int y,
 bool s52plib::CheckTextRectList(const wxRect &test_rect, S52_TextC *ptext) {
   //    Iterate over the current object list, looking at rText
 
-  for (TextObjList::Node *node = m_textObjList.GetFirst(); node;
+  for (TextObjList::compatibility_iterator node = m_textObjList.GetFirst(); node;
        node = node->GetNext()) {
     wxRect *pcurrent_rect = &(node->GetData()->rText);
 
@@ -2525,7 +2525,7 @@ int s52plib::RenderT_All(ObjRazRules *rzRules, Rules *rules,
     if (m_bDeClutterText) {
       if (bwas_drawn) {
         bool b_found = false;
-        for (TextObjList::Node *node = m_textObjList.GetFirst(); node;
+        for (TextObjList::compatibility_iterator node = m_textObjList.GetFirst(); node;
              node = node->GetNext()) {
           S52_TextC *oc = node->GetData();
 
@@ -10031,8 +10031,8 @@ void s52plib::AdjustTextList(int dx, int dy, int screenw, int screenh) {
   //        2.. Remove any list elements that are off screen after applied
   //        offset
 
-  TextObjList::Node *node = m_textObjList.GetFirst();
-  TextObjList::Node *next;
+  TextObjList::compatibility_iterator node = m_textObjList.GetFirst();
+  TextObjList::compatibility_iterator next;
   while (node) {
     next = node->GetNext();
     wxRect *pcurrent = &(node->GetData()->rText);
