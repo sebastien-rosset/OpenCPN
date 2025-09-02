@@ -68,6 +68,7 @@ void GribReader::clean_all_vectors() {
 void GribReader::clean_vector(std::vector<GribRecord *> &ls) {
   std::vector<GribRecord *>::iterator it;
   for (it = ls.begin(); it != ls.end(); it++) {
+    wxLogMessage("clean_vector. About to delete ptr: %p", *it);
     delete *it;
     *it = nullptr;
   }
@@ -85,6 +86,7 @@ void GribReader::storeRecordInMap(GribRecord *rec) {
 #endif
   std::map<std::string, std::vector<GribRecord *> *>::iterator it;
   it = mapGribRecords.find(rec->getKey());
+  wxLogMessage("storeRecordInMap: %p. Key: %s", rec, rec->getKey());
   if (it == mapGribRecords.end()) {
     mapGribRecords[rec->getKey()] = new std::vector<GribRecord *>;
     assert(mapGribRecords[rec->getKey()]);
@@ -134,24 +136,29 @@ void GribReader::readAllGribRecords() {
 
     if (is_v2 == false) {
       rec = new GribV1Record(file, id);
+      wxLogMessage("readAllGribRecords. Create GribV1Record: %p", rec);
       if (rec->isOk() == false) {
         delete rec;
         rec = new GribV2Record(file, id);
+        wxLogMessage("readAllGribRecords. GribV1Record not ok, deleted. Create GribV2Record: %p. isOk: %d", rec, rec->isOk());
         is_v2 = rec->isOk();
       }
     } else {
       GribV2Record *rec2 = dynamic_cast<GribV2Record *>(rec);
       if (rec2 && rec2->hasMoreDataSet()) {
         rec = rec2->GribV2NextDataSet(file, id);
+        wxLogMessage("rec2 hasMoreDataSet. Create GribV2Record: %p from rec2: %p", rec, rec2);
         delete prevDataSet;
       } else {
         rec = new GribV2Record(file, id);
+        wxLogMessage("rec2 has no more DataSet. Create GribV2Record: %p", rec);
       }
 
       is_v2 = rec->isOk();
       if (rec->isOk() == false) {
         delete rec;
         rec = new GribV1Record(file, id);
+        wxLogMessage("rec2 is not ok. Create GribV1Record: %p", rec);
       }
     }
     prevDataSet = nullptr;
@@ -293,6 +300,7 @@ void GribReader::copyFirstCumulativeRecord(int dataType, int levelType,
     rec = getFirstGribRecord(dataType, levelType, levelValue);
     if (rec != nullptr) {
       GribRecord *r2 = new GribRecord(*rec);
+      wxLogMessage("copyFirstCumulativeRecord. Create GribRecord: %p", r2);
       r2->setRecordCurrentDate(dateref);  // 1er enregistrement factice
       storeRecordInMap(r2);
     }
@@ -337,6 +345,7 @@ void GribReader::copyMissingWaveRecords(int dataType, int levelType,
         if (rec2 && rec2->isOk()) {
           // create a copied record from date2
           GribRecord *r2 = new GribRecord(*rec2);
+          wxLogMessage("copyMissingWaveRecords. Create GribRecord: %p", r2);
           r2->setRecordCurrentDate(date);
           storeRecordInMap(r2);
         }
@@ -458,6 +467,7 @@ void GribReader::readGribFileContent() {
 
     // Crée un GribRecord avec les dewpoints calculés
     GribRecord *recDewpoint = new GribRecord(*recModel);
+    wxLogMessage("readGribFileContent. Create GribRecord: %p", recDewpoint);
     recDewpoint->setDataType(GRB_DEWPOINT);
     for (zuint i = 0; i < (zuint)recModel->getNi(); i++) {
       for (zuint j = 0; j < (zuint)recModel->getNj(); j++) {
