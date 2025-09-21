@@ -370,6 +370,9 @@ public:
   int m_VersionMinor;
 
   int m_nDepthUnitDisplay;
+  // Preferred display unit for vertical heights (meters/feet).
+  // 0 = meters, 1 = feet
+  int m_nHeightUnitDisplay;
 
   //    Library data
   wxArrayPtrVoid *pAlloc;
